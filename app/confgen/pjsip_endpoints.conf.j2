@@ -1,0 +1,47 @@
+;==============================================================================
+; FICHIER GÉNÉRÉ — NE PAS ÉDITER À LA MAIN
+;
+; Source de vérité : la base /var/lib/telephonie/telephonie.db, écran « Postes »
+; de l'UI de gestion. Toute modification faite ici sera écrasée au prochain
+; « Appliquer la configuration ».
+;
+; Les paramètres communs (codecs par défaut, NAT, DTMF, sécurité) sont dans les
+; gabarits `endpoint-internal` / `endpoint-trunk` de /etc/asterisk/pjsip.conf,
+; qui est un fichier statique édité à la main, lui.
+;==============================================================================
+{% for d in devices %}
+
+;--- {{ d.label }}{% if d.extension %} — poste {{ d.extension }}{% endif %} ({{ d.kind }}) ---
+{% if d.notes %}
+; {{ d.notes }}
+{% endif %}
+[{{ d.slug }}]({{ d.template }})
+aors={{ d.slug }}-aor
+auth={{ d.slug }}-auth
+context={{ d.context }}
+callerid={{ d.label }} <{{ d.extension or d.slug }}>
+disallow=all
+{% for codec in d.codec_list %}
+allow={{ codec }}
+{% endfor %}
+{% if d.mailbox %}
+mailboxes={{ d.mailbox }}@default
+{% endif %}
+
+[{{ d.slug }}-aor]
+type=aor
+max_contacts={{ d.max_contacts }}
+remove_existing=yes
+qualify_frequency=60
+qualify_timeout=5
+
+[{{ d.slug }}-auth]
+type=auth
+auth_type=userpass
+username={{ d.slug }}
+password={{ d.secret }}
+{% endfor %}
+{% if not devices %}
+
+; Aucun poste actif. Ajoutez-en un depuis l'écran « Postes » de l'UI.
+{% endif %}

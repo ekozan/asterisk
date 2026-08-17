@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+{% block title %}Postes — {{ settings.site_name }}{% endblock %}
+{% block content %}
+
+<h1>Postes</h1>
+<p class="hint">Un « poste » est tout ce qui s'enregistre en SIP sur Asterisk : un port d'ATA,
+  une base DECT, l'application mobile, ou le pont FXO vers la ligne Freebox.</p>
+
+<section class="card">
+  <h2>{{ "Modifier « " ~ editing.label ~ " »" if editing else "Ajouter un poste" }}</h2>
+  <form method="post"
+        action="{{ '/devices/' ~ editing.id ~ '/edit' if editing else '/devices' }}"
+        class="grid">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+
+    {% if not editing %}
+    <label>Identifiant SIP
+      <input name="slug" required pattern="[a-z0-9][a-z0-9-]{1,31}" placeholder="salon">
+      <span class="hint">Sert de nom d'utilisateur SIP. Non modifiable ensuite.</span>
+    </label>
+    {% endif %}
+
+    <label>Nom affiché
+      <input name="label" required value="{{ editing.label if editing else '' }}" placeholder="Salon">
+    </label>
+
+    <label>Type
+      <select name="kind">
+        {% for key, text in kinds.items() %}
+        <option value="{{ key }}" {{ 'selected' if editing and editing.kind == key }}>{{ text }}</option>
+        {% endfor %}
+      </select>
+    </label>
+
+    <label>Numéro interne
+      <input name="extension" value="{{ editing.extension or '' if editing else '' }}" placeholder="100">
+      <span class="hint">Laisser vide pour un pont FXO. Les numéros d'urgence sont refusés.</span>
+    </label>
+
+    <label>Boîte vocale
+      <input name="mailbox" value="{{ editing.mailbox or '' if editing else '' }}" placeholder="100">
+      <span class="hint">Vide = pas de messagerie. Par défaut, identique au numéro interne.</span>
+    </label>
+
+    <label>Codecs
+      <input name="codecs" value="{{ editing.codecs if editing else 'alaw,ulaw' }}">
+      <span class="hint">Dans l'ordre de préférence. <code>alaw</code> pour tout ce qui est
+        analogique, <code>opus,alaw</code> pour l'application mobile.</span>
+    </label>
+
+    <label>Sonnerie (s)
+      <input name="ring_time" type="number" min="5" max="120"
+             value="{{ editing.ring_time if editing else 30 }}">
+    </label>
+
+    <label>Contacts simultanés
+      <input name="max_contacts" type="number" min="1" max="10"
+             value="{{ editing.max_contacts if editing else 1 }}">
+      <span class="hint">1 pour un ATA. 2 ou plus pour un mobile enregistré sur plusieurs appareils.</span>
+    </label>
+
+    <label>Mode de décroché
+      <select name="dial_mode">
+        <option value="direct" {{ 'selected' if editing and editing.dial_mode == 'direct' }}>
+          Normal — l'utilisateur compose un numéro</option>
+        <option value="hotline" {{ 'selected' if editing and editing.dial_mode == 'hotline' }}>
+          Hotline — l'ATA compose seul au décroché (téléphone à cadran)</option>
+      </select>
+    </label>
+
+    <label>Numéro de hotline
+      <input name="hotline_target" value="{{ editing.hotline_target or '' if editing else '' }}"
+             placeholder="*9">
+      <span class="hint">À reporter dans le champ « Offhook Auto-Dial » de l'ATA.</span>
+    </label>
+
+    <label class="wide">Notes
+      <input name="notes" value="{{ editing.notes or '' if editing else '' }}"
+             placeholder="TA200 port 1, prise murale salon">
+    </label>
+
+    {% if editing %}
+    <label class="check">
+      <input type="checkbox" name="enabled" value="1" {{ 'checked' if editing.enabled }}>
+      Poste actif
+    </label>
+    {% endif %}
+
+    <div class="actions wide">
+      <button type="submit" class="primary">{{ "Enregistrer" if editing else "Créer le poste" }}</button>
+      {% if editing %}<a class="button" href="/devices">Annuler</a>{% endif %}
+    </div>
+  </form>
+</section>
+
+<section class="card">
+  <h2>Postes déclarés</h2>
+  <table>
+    <thead>
+      <tr><th>Nom</th><th>Numéro</th><th>Identifiant SIP</th><th>Mot de passe SIP</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for device in devices %}
+      <tr class="{{ '' if device.enabled else 'muted' }}">
+        <td>{{ device.label }}<br><span class="dim">{{ kinds.get(device.kind, device.kind) }}</span></td>
+        <td>{{ device.extension or "—" }}</td>
+        <td><code>{{ device.slug }}</code></td>
+        <td>
+          <details>
+            <summary>afficher</summary>
+            <code class="secret">{{ device.secret }}</code>
+          </details>
+        </td>
+        <td class="row-actions">
+          <a class="button" href="/devices?edit={{ device.id }}">Modifier</a>
+          <form method="post" action="/devices/{{ device.id }}/secret" class="inline">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            <button type="submit" class="button">Régénérer le mot de passe</button>
+          </form>
+          <form method="post" action="/devices/{{ device.id }}/delete" class="inline"
+                onsubmit="return confirm('Supprimer le poste {{ device.label }} ?')">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            <button type="submit" class="button danger">Supprimer</button>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5" class="empty">Aucun poste déclaré.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+{% endblock %}

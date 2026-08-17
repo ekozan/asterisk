@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}Appliquer — {{ settings.site_name }}{% endblock %}
+{% block content %}
+
+<h1>Appliquer la configuration</h1>
+<p class="hint">
+  Cette action écrit les fichiers de <code>{{ config.GENERATED_DIR }}</code> puis recharge
+  Asterisk (<code>dialplan reload</code>, <code>pjsip reload</code>,
+  <code>voicemail reload</code>). Les appels en cours ne sont pas coupés. Une révision est
+  archivée à chaque fois, ce qui permet de revenir en arrière.
+</p>
+
+{% if not asterisk_up %}
+<div class="flash err">Asterisk est injoignable : les fichiers seront écrits, mais le
+  rechargement échouera.</div>
+{% endif %}
+
+{% if build_error %}
+<div class="flash err">La génération a échoué : <code>{{ build_error }}</code></div>
+{% endif %}
+
+{% if problems %}
+<section class="card">
+  <h2>Contrôles préalables</h2>
+  <ul class="problems">
+    {% for problem in problems %}
+    <li class="{{ problem.level }}">
+      <span class="tag">{{ "erreur" if problem.level == "error" else "avertissement" }}</span>
+      {{ problem.message }}
+    </li>
+    {% endfor %}
+  </ul>
+  {% if problems | selectattr('level', 'equalto', 'error') | list %}
+  <p class="flash err">Les erreurs bloquent l'application. Corrigez-les d'abord.</p>
+  {% endif %}
+</section>
+{% endif %}
+
+<section class="card">
+  <h2>Différences avec la configuration en place</h2>
+  {% if diff %}
+  <pre class="diff">{{ diff }}</pre>
+  {% else %}
+  <p class="empty">Aucune différence : les fichiers en place correspondent déjà à la base.</p>
+  {% endif %}
+</section>
+
+<section class="card">
+  <form method="post" action="/apply">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label>Description de la modification
+      <input name="summary" placeholder="Ajout du poste Garage" maxlength="120">
+    </label>
+    <div class="actions">
+      <button type="submit" class="primary"
+              {{ 'disabled' if problems | selectattr('level', 'equalto', 'error') | list }}>
+        Écrire et recharger Asterisk
+      </button>
+    </div>
+  </form>
+</section>
+
+<section class="card">
+  <h2>Aperçu des fichiers générés</h2>
+  {% for name, content in bundle.items() %}
+  <details>
+    <summary><code>{{ name }}</code> — {{ content.splitlines() | length }} lignes</summary>
+    <pre>{{ content }}</pre>
+  </details>
+  {% endfor %}
+</section>
+
+{% endblock %}

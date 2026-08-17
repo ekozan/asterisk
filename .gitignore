@@ -1,0 +1,18 @@
+# Environnements Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+
+# Répertoire de travail local (base et fichiers générés en développement)
+var/
+
+# Bases de données — la base de production vit dans /var/lib/telephonie et
+# contient des mots de passe SIP en clair : elle n'a rien à faire ici.
+*.db
+*.db-wal
+*.db-shm
+
+# Outillage
+.pytest_cache/
+.coverage

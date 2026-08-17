@@ -1,0 +1,15 @@
+;==============================================================================
+; FICHIER GÉNÉRÉ — NE PAS ÉDITER À LA MAIN
+;
+; Inclus depuis la section [default] de /etc/asterisk/voicemail.conf.
+; Format : boite => PIN,Nom,email,pager,options
+;
+; Les PIN sont tirés au hasard à la création de la boîte. Chacun peut changer
+; le sien en composant *97 puis 0 depuis son poste (voir docs/05-exploitation.md).
+;==============================================================================
+{% for m in mailboxes %}
+{{ m.box }} => {{ m.pin }},{{ m.name }},{{ m.email }},,tz={{ tonezone }}|attach={{ 'yes' if m.email else 'no' }}|delete=no
+{% endfor %}
+{% if not mailboxes %}
+; Aucune boîte vocale définie.
+{% endif %}

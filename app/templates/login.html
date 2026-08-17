@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Connexion</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body class="centered">
+<form method="post" action="/login" class="card narrow">
+  <h1>Téléphonie maison</h1>
+  {% if ok_msg %}<div class="flash ok">{{ ok_msg }}</div>{% endif %}
+  {% if err_msg %}<div class="flash err">{{ err_msg }}</div>{% endif %}
+  <label>Identifiant
+    <input name="username" autocomplete="username" required autofocus>
+  </label>
+  <label>Mot de passe
+    <input name="password" type="password" autocomplete="current-password" required>
+  </label>
+  <button type="submit" class="primary">Se connecter</button>
+</form>
+</body>
+</html>

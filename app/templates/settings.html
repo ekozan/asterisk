@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Réglages — {{ settings.site_name }}{% endblock %}
+{% block content %}
+
+<h1>Réglages</h1>
+<p class="hint">Ces valeurs alimentent le dialplan généré. Comme tout le reste, elles ne
+  prennent effet qu'après un passage par l'écran « Appliquer ».</p>
+
+<section class="card">
+  <form method="post" action="/settings" class="grid">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    {% for key, label, kind in fields %}
+      {% if kind == "bool" %}
+      <label class="check">
+        <input type="checkbox" name="{{ key }}" value="1" {{ 'checked' if settings[key] == '1' }}>
+        {{ label }}
+      </label>
+      {% else %}
+      <label>{{ label }}
+        <input name="{{ key }}" value="{{ settings[key] }}"
+               {{ 'type=number' if kind == 'number' }}>
+      </label>
+      {% endif %}
+    {% endfor %}
+    <div class="actions wide">
+      <button type="submit" class="primary">Enregistrer</button>
+    </div>
+  </form>
+</section>
+
+<section class="card">
+  <h2>Environnement du service</h2>
+  <p class="hint">Ces valeurs viennent des variables d'environnement du service systemd et ne
+    se modifient pas depuis l'UI.</p>
+  <table>
+    <tbody>
+      <tr><th>Base de données</th><td><code>{{ config.DB_PATH }}</code></td></tr>
+      <tr><th>Fichiers générés</th><td><code>{{ config.GENERATED_DIR }}</code></td></tr>
+      <tr><th>Binaire Asterisk</th><td><code>{{ config.ASTERISK_BIN }}</code></td></tr>
+      <tr><th>Rechargement automatique</th>
+          <td>{{ "activé" if config.RELOAD_ENABLED else "désactivé (TELEPHONIE_RELOAD=0)" }}</td></tr>
+      <tr><th>Synthèse vocale</th>
+          <td>{{ config.TTS_SCRIPT if config.TTS_ENABLED else "désactivée" }}</td></tr>
+      <tr><th>API JSON</th>
+          <td>{{ "activée" if config.API_TOKEN else "désactivée (aucun jeton défini)" }}</td></tr>
+    </tbody>
+  </table>
+</section>
+
+{% endblock %}

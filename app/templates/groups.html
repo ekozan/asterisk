@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}Groupes — {{ settings.site_name }}{% endblock %}
+{% block content %}
+
+<h1>Groupes d'appel</h1>
+<p class="hint">Un groupe fait sonner plusieurs postes ensemble. Le groupe désigné dans les
+  réglages (<code>{{ settings.ivr_family_group }}</code>) est celui que joint la touche 1 du
+  menu des appels entrants.</p>
+
+<section class="card">
+  <h2>{{ "Modifier « " ~ editing.label ~ " »" if editing else "Ajouter un groupe" }}</h2>
+  <form method="post"
+        action="{{ '/groups/' ~ editing.id ~ '/edit' if editing else '/groups' }}" class="grid">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+
+    {% if not editing %}
+    <label>Identifiant
+      <input name="slug" required pattern="[a-z0-9][a-z0-9-]{1,31}" placeholder="famille">
+    </label>
+    {% endif %}
+
+    <label>Nom affiché
+      <input name="label" required value="{{ editing.label if editing else '' }}" placeholder="Toute la maison">
+    </label>
+
+    <label>Numéro du groupe
+      <input name="extension" value="{{ editing.extension or '' if editing else '' }}" placeholder="199">
+    </label>
+
+    <label>Sonnerie (s)
+      <input name="ring_time" type="number" min="5" max="120"
+             value="{{ editing.ring_time if editing else 30 }}">
+    </label>
+
+    <label>Boîte vocale de repli
+      <input name="voicemail_box" value="{{ editing.voicemail_box or '' if editing else '' }}"
+             placeholder="199">
+      <span class="hint">Utilisée si personne ne décroche.</span>
+    </label>
+
+    {% if editing %}
+    <label class="check">
+      <input type="checkbox" name="enabled" value="1" {{ 'checked' if editing.enabled }}>
+      Groupe actif
+    </label>
+    {% endif %}
+
+    <fieldset class="wide">
+      <legend>Postes du groupe</legend>
+      {% for device in devices %}
+      <label class="check">
+        <input type="checkbox" name="device_ids" value="{{ device.id }}"
+               {{ 'checked' if device.id in editing_devices }}>
+        {{ device.label }} <code class="dim">{{ device.slug }}</code>
+      </label>
+      {% else %}
+      <p class="empty">Aucun poste déclaré.</p>
+      {% endfor %}
+    </fieldset>
+
+    <div class="actions wide">
+      <button type="submit" class="primary">{{ "Enregistrer" if editing else "Créer" }}</button>
+      {% if editing %}<a class="button" href="/groups">Annuler</a>{% endif %}
+    </div>
+  </form>
+</section>
+
+<section class="card">
+  <h2>Groupes déclarés</h2>
+  <table>
+    <thead><tr><th>Nom</th><th>Identifiant</th><th>Numéro</th><th>Postes</th><th></th></tr></thead>
+    <tbody>
+      {% for group in groups %}
+      <tr class="{{ '' if group.enabled else 'muted' }}">
+        <td>{{ group.label }}</td>
+        <td><code>{{ group.slug }}</code></td>
+        <td>{{ group.extension or "—" }}</td>
+        <td>{% for slug in group.device_slugs %}<code>{{ slug }}</code> {% else %}
+            <span class="dim">aucun</span>{% endfor %}</td>
+        <td class="row-actions">
+          <a class="button" href="/groups?edit={{ group.id }}">Modifier</a>
+          <form method="post" action="/groups/{{ group.id }}/delete" class="inline"
+                onsubmit="return confirm('Supprimer le groupe {{ group.label }} ?')">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            <button type="submit" class="button danger">Supprimer</button>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5" class="empty">Aucun groupe.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+{% endblock %}

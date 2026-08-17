@@ -1,0 +1,39 @@
+[Unit]
+Description=Asterisk PBX
+Documentation=man:asterisk(8)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=asterisk
+Group=asterisk
+# -f garde le processus au premier plan, ce que systemd attend d'un Type=simple.
+# -C évite toute ambiguïté sur le fichier de configuration racine.
+ExecStart=/usr/sbin/asterisk -f -C /etc/asterisk/asterisk.conf
+ExecReload=/usr/sbin/asterisk -rx 'core reload'
+Restart=always
+RestartSec=4
+
+# Asterisk crée son socket de contrôle ici ; le répertoire disparaît au
+# redémarrage sur un /run en tmpfs.
+RuntimeDirectory=asterisk
+RuntimeDirectoryMode=0750
+
+# Un PBX qui perd son socket ou ses descripteurs sous la charge est
+# difficile à diagnostiquer : on lui laisse de la marge.
+LimitNOFILE=8192
+LimitCORE=0
+
+# --- Durcissement ---------------------------------------------------------
+NoNewPrivileges=yes
+ProtectHome=yes
+ProtectSystem=full
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictRealtime=no
+LockPersonality=yes
+
+[Install]
+WantedBy=multi-user.target

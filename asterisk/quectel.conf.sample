@@ -1,0 +1,38 @@
+;==============================================================================
+; quectel.conf — trunk GSM de secours (module SIM7600G-H via chan-quectel).
+;
+; Fichier D'EXEMPLE : copier en /etc/asterisk/quectel.conf et adapter les
+; chemins de périphériques, qui dépendent du passthrough USB (voir
+; docs/02-installation.md, section « Module GSM »).
+;
+; Repérer les bons ports :
+;   ls -l /dev/serial/by-id/     -> chemins stables, à préférer à /dev/ttyUSB*
+;   asterisk -rx "quectel show devices"
+;==============================================================================
+
+[general]
+interval=15
+
+[quectel0]
+; Port de commandes AT. Utiliser un chemin by-id : /dev/ttyUSB2 change d'index
+; au moindre rebranchement ou redémarrage.
+data=/dev/serial/by-id/usb-SimTech__Incorporated_SimTech__Incorporated-if02-port0
+audio=/dev/serial/by-id/usb-SimTech__Incorporated_SimTech__Incorporated-if04-port0
+
+; Contexte d'arrivée des appels GSM entrants : même IVR que la ligne fixe.
+context=from-external-incoming
+
+; Le groupe permet de viser « n'importe quel module libre » avec Quectel/g1.
+group=1
+
+; Laisser Asterisk piloter le module au démarrage.
+initstate=start
+disable=no
+
+; Réglages audio : sur SIM7600G-H, la voix passe par la carte son USB (UAC).
+; Si aucun son ne passe dans un sens, vérifier AT+QCFG="usbcfg" et AT+CSDVC.
+txgain=0
+rxgain=0
+
+; SMS : reçus en événement, traités par le dialplan si vous en avez besoin.
+smsaspdu=yes

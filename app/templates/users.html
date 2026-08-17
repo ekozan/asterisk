@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}Personnes — {{ settings.site_name }}{% endblock %}
+{% block content %}
+
+<h1>Personnes</h1>
+<p class="hint">Une personne regroupe plusieurs postes : l'appeler les fait tous sonner en même
+  temps. Elle peut aussi recevoir une touche du menu vocal « joindre une personne ».</p>
+
+<section class="card">
+  <h2>{{ "Modifier « " ~ editing.name ~ " »" if editing else "Ajouter une personne" }}</h2>
+  <form method="post"
+        action="{{ '/users/' ~ editing.id ~ '/edit' if editing else '/users' }}" class="grid">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+
+    <label>Prénom
+      <input name="name" required value="{{ editing.name if editing else '' }}">
+      <span class="hint">Utilisé tel quel dans l'annonce vocale du menu.</span>
+    </label>
+
+    <label>Numéro personnel
+      <input name="extension" value="{{ editing.extension or '' if editing else '' }}" placeholder="201">
+      <span class="hint">Composable depuis n'importe quel poste de la maison.</span>
+    </label>
+
+    <label>Touche du menu vocal
+      <input name="menu_digit" value="{{ editing.menu_digit or '' if editing else '' }}"
+             placeholder="1" maxlength="1">
+      <span class="hint">Vide = non joignable depuis le menu des appels entrants.</span>
+    </label>
+
+    <label>Boîte vocale
+      <input name="voicemail_box" value="{{ editing.voicemail_box or '' if editing else '' }}"
+             placeholder="201">
+      <span class="hint">Par défaut, identique au numéro personnel.</span>
+    </label>
+
+    <label>Courriel
+      <input name="email" type="email" value="{{ editing.email or '' if editing else '' }}">
+      <span class="hint">Renseigné, les messages vocaux y sont envoyés en pièce jointe.</span>
+    </label>
+
+    {% if editing %}
+    <label class="check">
+      <input type="checkbox" name="enabled" value="1" {{ 'checked' if editing.enabled }}>
+      Personne active
+    </label>
+    {% endif %}
+
+    <fieldset class="wide">
+      <legend>Postes qui sonnent pour cette personne</legend>
+      {% for device in devices %}
+      <label class="check">
+        <input type="checkbox" name="device_ids" value="{{ device.id }}"
+               {{ 'checked' if device.id in editing_devices }}>
+        {{ device.label }} <code class="dim">{{ device.slug }}</code>
+      </label>
+      {% else %}
+      <p class="empty">Aucun poste déclaré. <a href="/devices">Commencez par en créer</a>.</p>
+      {% endfor %}
+    </fieldset>
+
+    <div class="actions wide">
+      <button type="submit" class="primary">{{ "Enregistrer" if editing else "Créer" }}</button>
+      {% if editing %}<a class="button" href="/users">Annuler</a>{% endif %}
+    </div>
+  </form>
+</section>
+
+<section class="card">
+  <h2>Personnes déclarées</h2>
+  <table>
+    <thead>
+      <tr><th>Prénom</th><th>Numéro</th><th>Touche menu</th><th>Postes</th><th>Messagerie</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for user in users %}
+      <tr class="{{ '' if user.enabled else 'muted' }}">
+        <td>{{ user.name }}</td>
+        <td>{{ user.extension or "—" }}</td>
+        <td>{{ user.menu_digit or "—" }}</td>
+        <td>
+          {% for slug in user.device_slugs %}<code>{{ slug }}</code> {% else %}
+          <span class="dim">aucun</span>{% endfor %}
+        </td>
+        <td>{{ user.voicemail_box or "—" }}</td>
+        <td class="row-actions">
+          <a class="button" href="/users?edit={{ user.id }}">Modifier</a>
+          <form method="post" action="/users/{{ user.id }}/pin" class="inline">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            <button type="submit" class="button">Nouveau PIN</button>
+          </form>
+          <form method="post" action="/users/{{ user.id }}/delete" class="inline"
+                onsubmit="return confirm('Supprimer {{ user.name }} ?')">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            <button type="submit" class="button danger">Supprimer</button>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6" class="empty">Aucune personne déclarée.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+{% endblock %}

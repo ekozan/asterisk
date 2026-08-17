@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Révisions — {{ settings.site_name }}{% endblock %}
+{% block content %}
+
+<h1>Révisions de configuration</h1>
+<p class="hint">
+  Chaque application archive les fichiers écrits. Un retour arrière réécrit ces fichiers et
+  recharge Asterisk, mais <strong>ne touche pas à la base</strong> : c'est un dépannage
+  immédiat, pas une annulation. Après un retour arrière, corrigez la donnée fautive dans
+  l'UI, sinon la prochaine application réintroduira le problème.
+</p>
+
+<section class="card">
+  <table>
+    <thead><tr><th>#</th><th>Date</th><th>Auteur</th><th>Description</th><th></th></tr></thead>
+    <tbody>
+      {% for revision in revisions %}
+      <tr>
+        <td>{{ revision.id }}</td>
+        <td>{{ revision.created_at }}</td>
+        <td>{{ revision.author }}</td>
+        <td>{{ revision.summary }}</td>
+        <td class="row-actions">
+          <a class="button" href="/revisions?detail={{ revision.id }}">Détail</a>
+          <form method="post" action="/revisions/{{ revision.id }}/rollback" class="inline"
+                onsubmit="return confirm('Réécrire les fichiers de la révision {{ revision.id }} ?')">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            <button type="submit" class="button danger">Revenir à cette version</button>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5" class="empty">Aucune révision : la configuration n'a jamais été appliquée.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+{% if detail %}
+<section class="card">
+  <h2>Révision {{ detail.id }} — {{ detail.summary }}</h2>
+  <p class="dim">{{ detail.created_at }} par {{ detail.author }}</p>
+  <h3>Journal du rechargement</h3>
+  <pre>{{ detail.reload_log or "(aucun)" }}</pre>
+  <h3>Fichiers archivés</h3>
+  <pre class="diff">{{ detail.bundle }}</pre>
+</section>
+{% endif %}
+
+{% endblock %}

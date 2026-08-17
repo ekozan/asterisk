@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Numéros abrégés — {{ settings.site_name }}{% endblock %}
+{% block content %}
+
+<h1>Numéros abrégés</h1>
+<p class="hint">Un code court composé depuis un poste de la maison déclenche un appel vers un
+  numéro externe, en suivant l'ordre habituel des routes sortantes. Pratique sur un téléphone
+  à cadran, où composer dix chiffres est une épreuve.</p>
+
+<section class="card">
+  <h2>Ajouter</h2>
+  <form method="post" action="/speed-dials" class="grid">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label>Code composé
+      <input name="code" required placeholder="5" pattern="[0-9*#]{1,8}">
+    </label>
+    <label>Numéro appelé
+      <input name="number" required placeholder="0600000000">
+    </label>
+    <label>Libellé
+      <input name="label" placeholder="Mamie">
+    </label>
+    <div class="actions wide">
+      <button type="submit" class="primary">Ajouter</button>
+    </div>
+  </form>
+</section>
+
+<section class="card">
+  <h2>Abrégés existants</h2>
+  <table>
+    <thead><tr><th>Code</th><th>Numéro</th><th>Libellé</th><th></th></tr></thead>
+    <tbody>
+      {% for item in speed_dials %}
+      <tr class="{{ '' if item.enabled else 'muted' }}">
+        <td><code>{{ item.code }}</code></td>
+        <td>{{ item.number }}</td>
+        <td>{{ item.label or "—" }}</td>
+        <td class="row-actions">
+          <form method="post" action="/speed-dials/{{ item.id }}/delete" class="inline"
+                onsubmit="return confirm('Supprimer cet abrégé ?')">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            <button type="submit" class="button danger">Supprimer</button>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="4" class="empty">Aucun numéro abrégé.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+{% endblock %}

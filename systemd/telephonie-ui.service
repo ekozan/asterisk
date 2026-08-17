@@ -1,0 +1,44 @@
+[Unit]
+Description=UI de gestion de la téléphonie maison
+Documentation=file:///opt/telephonie/docs/04-interface.md
+After=network.target asterisk.service
+# Wants et non Requires : l'UI doit pouvoir démarrer même si Asterisk est en
+# panne — c'est justement le moment où on a besoin de consulter la config.
+Wants=asterisk.service
+
+[Service]
+Type=simple
+User=asterisk
+Group=asterisk
+WorkingDirectory=/opt/telephonie
+Environment=TELEPHONIE_DATA_DIR=/var/lib/telephonie
+Environment=TELEPHONIE_ASTERISK_DIR=/etc/asterisk
+Environment=TELEPHONIE_GENERATED_DIR=/etc/asterisk/generated
+Environment=TELEPHONIE_ASTERISK_BIN=/usr/sbin/asterisk
+Environment=TELEPHONIE_TTS_SCRIPT=/opt/piper-voices/generate.sh
+# Jeton de l'API JSON : décommenter et renseigner pour l'activer.
+# Environment=TELEPHONIE_API_TOKEN=changez-moi
+ExecStart=/opt/telephonie/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8080
+Restart=on-failure
+RestartSec=5
+
+# --- Durcissement ---------------------------------------------------------
+# L'UI n'a besoin d'écrire qu'à trois endroits ; tout le reste du système lui
+# est présenté en lecture seule. Le troisième chemin sert à la régénération
+# des messages vocaux par Piper.
+ProtectSystem=strict
+ReadWritePaths=/var/lib/telephonie /etc/asterisk/generated /var/lib/asterisk/sounds/custom
+ProtectHome=yes
+PrivateTmp=yes
+NoNewPrivileges=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+# L'UI n'écoute que sur la boucle locale et ne contacte rien à l'extérieur.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

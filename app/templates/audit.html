@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Journal d'administration — {{ settings.site_name }}{% endblock %}
+{% block content %}
+
+<h1>Journal d'administration</h1>
+<p class="hint">200 dernières actions effectuées depuis l'UI, y compris les échecs de
+  connexion.</p>
+
+<section class="card">
+  <table>
+    <thead><tr><th>Date</th><th>Compte</th><th>Action</th><th>Détail</th></tr></thead>
+    <tbody>
+      {% for entry in entries %}
+      <tr>
+        <td>{{ entry.at }}</td>
+        <td>{{ entry.actor }}</td>
+        <td><code>{{ entry.action }}</code></td>
+        <td>{{ entry.detail }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="4" class="empty">Journal vide.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+{% endblock %}

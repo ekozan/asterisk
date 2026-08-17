@@ -1,0 +1,7 @@
+# Dépendances de l'UI de gestion. Volontairement courtes : tout le reste
+# (SQLite, hachage des mots de passe, dialogue avec Asterisk) vient de la
+# bibliothèque standard.
+fastapi>=0.115,<1.0
+uvicorn[standard]>=0.30,<1.0
+jinja2>=3.1,<4.0
+python-multipart>=0.0.9

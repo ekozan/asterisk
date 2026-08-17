@@ -1,0 +1,207 @@
+;==============================================================================
+; FICHIER GÉNÉRÉ — NE PAS ÉDITER À LA MAIN
+;
+; Source de vérité : la base /var/lib/telephonie/telephonie.db (UI de gestion).
+; Les sous-routines réutilisables ([sub-ring], [features]) sont dans le fichier
+; statique /etc/asterisk/extensions.conf, édité à la main.
+;
+; Aucun appel ne dépend de l'UI : ce fichier est du dialplan pur, Asterisk
+; continue de fonctionner même si le service telephonie-ui est arrêté.
+;==============================================================================
+
+[globals]
+TONEZONE={{ s.tonezone }}
+LANGUE={{ s.language }}
+OUTBOUND_RING={{ s.outbound_ring_time }}
+VM_GENERAL={{ s.general_voicemail }}
+
+;==============================================================================
+; APPELS SORTANTS — essai des trunks par ordre de priorité
+;==============================================================================
+[sub-dial-number]
+; ARG1 = numéro au format national (0XXXXXXXXX) ou numéro court d'urgence
+; ARG2 = durée de sonnerie en secondes
+exten => s,1,NoOp(Sortant vers ${ARG1})
+ same => n,Set(NUM_NAT=${ARG1})
+ ; Les numéros courts (urgences, services) ne subissent aucune réécriture.
+ same => n,Set(COURT=$[${LEN(${ARG1})} <= 6])
+{% for t in trunks %}
+ same => n({{ t.label_id }}),NoOp(Essai via {{ t.label }})
+{% if t.number_format == 'e164' %}
+ same => n,ExecIf($[${COURT} = 0]?Set(NUM=+{{ s.country_code }}${NUM_NAT:1}):Set(NUM=${NUM_NAT}))
+{% else %}
+ same => n,Set(NUM=${NUM_NAT})
+{% endif %}
+ same => n,Dial({{ t.dial_expr }},{{ t.timeout }})
+ same => n,GotoIf($["${DIALSTATUS}" = "CHANUNAVAIL"]?{{ t.next_label }})
+ same => n,GotoIf($["${DIALSTATUS}" = "CONGESTION"]?{{ t.next_label }})
+ same => n,Return()
+{% endfor %}
+ same => n(nomore),NoOp(Aucun trunk disponible pour ${ARG1})
+ same => n,Playback(all-circuits-busy-now)
+ same => n,Return()
+{% if not trunks %}
+; Aucun trunk sortant actif : les appels externes échoueront. Écran « Routes ».
+{% endif %}
+
+;==============================================================================
+; CONTEXTE INTERNE — tout ce qu'un poste de la maison peut composer
+;==============================================================================
+[from-internal]
+include => features
+
+;--- Urgences : jamais bloquées, jamais filtrées, toujours en tête ------------
+{% for num in emergency_numbers %}
+exten => {{ num }},1,NoOp(APPEL URGENCE ${EXTEN})
+{% if s.emergency_callerid %}
+ same => n,Set(CALLERID(num)={{ s.emergency_callerid }})
+{% endif %}
+ same => n,GoSub(sub-dial-number,s,1(${EXTEN},60))
+ same => n,Hangup()
+{% endfor %}
+
+;--- Postes ------------------------------------------------------------------
+{% for d in devices if d.extension %}
+exten => {{ d.extension }},1,NoOp(Poste {{ d.label }})
+ same => n,GoSub(sub-ring,s,1(PJSIP/{{ d.slug }},{{ d.ring_time }},{{ d.mailbox or '' }}))
+ same => n,Hangup()
+{% endfor %}
+
+;--- Personnes (sonne tous les postes de la personne) -------------------------
+{% for u in users if u.extension and u.dial_string %}
+exten => {{ u.extension }},1,NoOp(Personne {{ u.name }})
+ same => n,GoSub(sub-ring,s,1({{ u.dial_string }},{{ s.outbound_ring_time }},{{ u.voicemail_box or '' }}))
+ same => n,Hangup()
+{% endfor %}
+
+;--- Groupes d'appel ----------------------------------------------------------
+{% for g in groups if g.extension and g.dial_string %}
+exten => {{ g.extension }},1,NoOp(Groupe {{ g.label }})
+ same => n,GoSub(sub-ring,s,1({{ g.dial_string }},{{ g.ring_time }},{{ g.voicemail_box or '' }}))
+ same => n,Hangup()
+{% endfor %}
+
+;--- Numéros abrégés ----------------------------------------------------------
+{% for sd in speed_dials %}
+exten => {{ sd.code }},1,NoOp(Abrege {{ sd.label or sd.number }})
+ same => n,GoSub(sub-dial-number,s,1({{ sd.number }},${OUTBOUND_RING}))
+ same => n,Hangup()
+{% endfor %}
+
+;--- Décroché « hotline » (téléphone à cadran : l'ATA compose seul ce numéro) --
+{% for target in hotline_targets %}
+exten => {{ target }},1,NoOp(Decroche hotline)
+ same => n,Answer()
+ same => n,Set(CHANNEL(tonezone)=${TONEZONE})
+ same => n,Set(CHANNEL(language)=${LANGUE})
+ same => n,Wait(1)
+ same => n,Background({{ s.hotline_prompt }})
+ same => n,WaitExten(10)
+{% endfor %}
+
+;--- Appels sortants ----------------------------------------------------------
+; Format international saisi depuis un softphone : +33XXXXXXXXX -> 0XXXXXXXXX
+exten => _+{{ s.country_code }}X.,1,Goto(0${EXTEN:{{ s.country_code|length + 1 }}},1)
+
+exten => _0[1-9]XXXXXXXX,1,NoOp(Sortant national ${EXTEN})
+ same => n,GoSub(sub-dial-number,s,1(${EXTEN},${OUTBOUND_RING}))
+ same => n,Hangup()
+
+{% if s.block_premium == '1' %}
+; Numéros surtaxés bloqués (089x et services 3xxx) — anti-fraude à la tonalité.
+exten => _089XXXXXX,1,NoOp(Numero surtaxe bloque ${EXTEN})
+ same => n,Playback(ss-noservice)
+ same => n,Hangup()
+exten => _3XXX,1,NoOp(Service surtaxe bloque ${EXTEN})
+ same => n,Playback(ss-noservice)
+ same => n,Hangup()
+{% endif %}
+
+{% if s.international_allowed == '1' %}
+exten => _00.,1,NoOp(Sortant international ${EXTEN})
+ same => n,GoSub(sub-dial-number,s,1(${EXTEN},${OUTBOUND_RING}))
+ same => n,Hangup()
+{% else %}
+; International bloqué (réglage « Autoriser l'international » désactivé).
+exten => _00.,1,NoOp(International bloque ${EXTEN})
+ same => n,Playback(ss-noservice)
+ same => n,Hangup()
+{% endif %}
+
+exten => i,1,Playback(pbx-invalid)
+ same => n,Hangup()
+exten => t,1,Playback(vm-goodbye)
+ same => n,Hangup()
+
+;==============================================================================
+; APPELS ENTRANTS DEPUIS L'EXTÉRIEUR (pont FXO Freebox, trunk GSM)
+;==============================================================================
+[from-external-incoming]
+exten => s,1,NoOp(Entrant de ${CALLERID(num)})
+ same => n,Answer()
+ same => n,Set(CHANNEL(tonezone)=${TONEZONE})
+ same => n,Set(CHANNEL(language)=${LANGUE})
+ same => n,Wait(1)
+{% if s.ivr_enabled == '1' %}
+ same => n,Background({{ s.ivr_greeting }})
+ same => n,WaitExten({{ s.ivr_timeout }})
+
+exten => 1,1,NoOp(Choix 1 : sonner le groupe {{ family_group.label if family_group else 'famille' }})
+{% if family_group and family_group.dial_string %}
+ same => n,GoSub(sub-ring,s,1({{ family_group.dial_string }},{{ family_group.ring_time }},{{ family_group.voicemail_box or s.general_voicemail }}))
+{% else %}
+ same => n,Playback(ss-noservice)
+{% endif %}
+ same => n,Hangup()
+
+exten => 2,1,Goto(menu-personne,s,1)
+
+exten => t,1,NoOp(Pas de choix : repli sur la boite generale)
+ same => n,Voicemail(${VM_GENERAL}@default,u)
+ same => n,Hangup()
+exten => i,1,Playback(pbx-invalid)
+ same => n,Goto(s,2)
+{% else %}
+; IVR désactivé : un appel entrant sonne directement le groupe principal.
+{% if family_group and family_group.dial_string %}
+ same => n,GoSub(sub-ring,s,1({{ family_group.dial_string }},{{ family_group.ring_time }},{{ family_group.voicemail_box or s.general_voicemail }}))
+{% else %}
+ same => n,Voicemail(${VM_GENERAL}@default,u)
+{% endif %}
+ same => n,Hangup()
+{% endif %}
+
+; Certains ATA FXO envoient l'appel sur un numéro plutôt que sur `s`.
+exten => _.,1,Goto(s,1)
+
+;==============================================================================
+; MENU « JOINDRE UNE PERSONNE » (niveau 2 de l'IVR)
+;==============================================================================
+[menu-personne]
+exten => s,1,Background({{ s.ivr_people_prompt }})
+ same => n,WaitExten({{ s.ivr_timeout }})
+{% for u in users if u.menu_digit and u.dial_string %}
+
+exten => {{ u.menu_digit }},1,NoOp(Demande de {{ u.name }})
+ same => n,GoSub(sub-ring,s,1({{ u.dial_string }},{{ s.outbound_ring_time }},{{ u.voicemail_box or '' }}))
+ same => n,Hangup()
+{% endfor %}
+
+exten => *,1,Goto(from-external-incoming,s,1)
+exten => t,1,Voicemail(${VM_GENERAL}@default,u)
+ same => n,Hangup()
+exten => i,1,Playback(pbx-invalid)
+ same => n,Goto(s,1)
+
+;==============================================================================
+; NOTIFICATIONS VOCALES (appelé par l'API : /api/notify)
+; L'extension composée EST le nom du fichier son à jouer, ce qui évite toute
+; variable globale partagée entre deux notifications simultanées.
+;==============================================================================
+[notify]
+exten => _[a-z0-9-].,1,NoOp(Notification ${EXTEN})
+ same => n,Answer()
+ same => n,Wait(1)
+ same => n,Playback(custom/${EXTEN})
+ same => n,Playback(custom/${EXTEN})
+ same => n,Hangup()

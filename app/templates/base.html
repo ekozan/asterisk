@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}{{ settings.site_name }}{% endblock %}</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="/">{{ settings.site_name }}</a>
+  <nav>
+    <a href="/" class="{{ 'on' if request.url.path == '/' }}">Tableau de bord</a>
+    <a href="/devices" class="{{ 'on' if request.url.path.startswith('/devices') }}">Postes</a>
+    <a href="/users" class="{{ 'on' if request.url.path.startswith('/users') }}">Personnes</a>
+    <a href="/groups" class="{{ 'on' if request.url.path.startswith('/groups') }}">Groupes</a>
+    <a href="/speed-dials" class="{{ 'on' if request.url.path.startswith('/speed-dials') }}">Abrégés</a>
+    <a href="/trunks" class="{{ 'on' if request.url.path.startswith('/trunks') }}">Routes</a>
+    <a href="/calls" class="{{ 'on' if request.url.path.startswith('/calls') }}">Journal</a>
+    <a href="/settings" class="{{ 'on' if request.url.path.startswith('/settings') }}">Réglages</a>
+  </nav>
+  <form method="post" action="/logout" class="logout">
+    <span class="who">{{ session.username }}</span>
+    <button type="submit" class="link">Déconnexion</button>
+  </form>
+</header>
+
+{% if dirty %}
+<div class="banner warn">
+  Des modifications ne sont pas encore actives sur Asterisk.
+  <a href="/apply">Voir le diff et appliquer</a>
+</div>
+{% endif %}
+
+<main>
+  {% if ok_msg %}<div class="flash ok">{{ ok_msg }}</div>{% endif %}
+  {% if err_msg %}<div class="flash err">{{ err_msg }}</div>{% endif %}
+  {% block content %}{% endblock %}
+</main>
+
+<footer>
+  <a href="/revisions">Révisions de configuration</a> ·
+  <a href="/audit">Journal d'administration</a> ·
+  <a href="/apply">Appliquer</a>
+</footer>
+</body>
+</html>

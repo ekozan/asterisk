@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Première configuration</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body class="centered">
+<form method="post" action="/setup" class="card narrow">
+  <h1>Premier démarrage</h1>
+  <p class="hint">
+    Aucun compte d'administration n'existe encore. Créez-le maintenant :
+    cette page se fermera définitivement dès qu'un compte sera enregistré.
+  </p>
+  {% if err_msg %}<div class="flash err">{{ err_msg }}</div>{% endif %}
+  <label>Identifiant
+    <input name="username" autocomplete="username" required autofocus>
+  </label>
+  <label>Mot de passe (10 caractères minimum)
+    <input name="password" type="password" autocomplete="new-password" required minlength="10">
+  </label>
+  <label>Confirmation
+    <input name="password2" type="password" autocomplete="new-password" required minlength="10">
+  </label>
+  <button type="submit" class="primary">Créer le compte</button>
+</form>
+</body>
+</html>

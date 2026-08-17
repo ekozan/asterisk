@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+{% block title %}Tableau de bord — {{ settings.site_name }}{% endblock %}
+{% block content %}
+
+<h1>Tableau de bord</h1>
+
+<section class="cards">
+  <div class="card stat">
+    <span class="label">Asterisk</span>
+    <span class="value {{ 'good' if asterisk_up else 'bad' }}">
+      {{ "en marche" if asterisk_up else "injoignable" }}
+    </span>
+    {% if not asterisk_up %}
+    <span class="hint">Vérifiez <code>systemctl status asterisk</code> et les droits du service
+      sur <code>/var/run/asterisk/asterisk.ctl</code>.</span>
+    {% endif %}
+  </div>
+  <div class="card stat">
+    <span class="label">Appels en cours</span>
+    <span class="value">{{ active_calls if active_calls is not none else "—" }}</span>
+  </div>
+  <div class="card stat">
+    <span class="label">Postes joignables</span>
+    <span class="value">
+      {{ devices | selectattr('state', 'equalto', 'Not in use') | list | length }}
+      / {{ devices | selectattr('enabled') | list | length }}
+    </span>
+  </div>
+  <div class="card stat">
+    <span class="label">Dernière application</span>
+    <span class="value small">
+      {% if last_revision %}{{ last_revision.created_at }}{% else %}jamais{% endif %}
+    </span>
+    {% if last_revision %}<span class="hint">{{ last_revision.summary }}</span>{% endif %}
+  </div>
+</section>
+
+{% if problems %}
+<section class="card">
+  <h2>Points de vigilance</h2>
+  <ul class="problems">
+    {% for problem in problems %}
+    <li class="{{ problem.level }}">
+      <span class="tag">{{ "erreur" if problem.level == "error" else "avertissement" }}</span>
+      {{ problem.message }}
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+
+<section class="card">
+  <h2>Postes</h2>
+  <table>
+    <thead>
+      <tr><th>Poste</th><th>Numéro</th><th>Type</th><th>État SIP</th><th>Messagerie</th></tr>
+    </thead>
+    <tbody>
+      {% for device in devices %}
+      <tr class="{{ '' if device.enabled else 'muted' }}">
+        <td><a href="/devices?edit={{ device.id }}">{{ device.label }}</a>
+            <code class="dim">{{ device.slug }}</code></td>
+        <td>{{ device.extension or "—" }}</td>
+        <td>{{ device.kind }}</td>
+        <td>
+          {% if not device.enabled %}
+            <span class="badge off">désactivé</span>
+          {% elif device.state == "Not in use" %}
+            <span class="badge good">enregistré</span>
+          {% elif device.state == "inconnu" %}
+            <span class="badge">état inconnu</span>
+          {% elif device.state in ("In use", "Busy", "Ringing") %}
+            <span class="badge good">{{ device.state }}</span>
+          {% else %}
+            <span class="badge bad">non enregistré</span>
+          {% endif %}
+        </td>
+        <td>{{ device.mailbox or "—" }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5" class="empty">Aucun poste. <a href="/devices">En créer un</a>.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="card">
+  <h2>Qui sonne quand</h2>
+  <table>
+    <thead><tr><th>Destination</th><th>Numéro</th><th>Fait sonner</th></tr></thead>
+    <tbody>
+      {% for group in groups %}
+      <tr class="{{ '' if group.enabled else 'muted' }}">
+        <td><a href="/groups?edit={{ group.id }}">{{ group.label }}</a>
+            <span class="badge">groupe</span></td>
+        <td>{{ group.extension or "—" }}</td>
+        <td>{% for slug in group.device_slugs %}<code>{{ slug }}</code> {% else %}
+            <span class="dim">aucun poste</span>{% endfor %}</td>
+      </tr>
+      {% endfor %}
+      {% for user in users %}
+      <tr class="{{ '' if user.enabled else 'muted' }}">
+        <td><a href="/users?edit={{ user.id }}">{{ user.name }}</a>
+            {% if user.menu_digit %}<span class="badge">menu : {{ user.menu_digit }}</span>{% endif %}</td>
+        <td>{{ user.extension or "—" }}</td>
+        <td>{% for slug in user.device_slugs %}<code>{{ slug }}</code> {% else %}
+            <span class="dim">aucun poste</span>{% endfor %}</td>
+      </tr>
+      {% endfor %}
+      {% if not groups and not users %}
+      <tr><td colspan="3" class="empty">Ni groupe ni personne déclarés.</td></tr>
+      {% endif %}
+    </tbody>
+  </table>
+</section>
+
+<section class="card">
+  <h2>Ordre des routes sortantes</h2>
+  <p class="hint">Un appel sortant essaie ces routes de haut en bas, et passe à la
+    suivante si la précédente répond <code>CHANUNAVAIL</code> ou <code>CONGESTION</code>.</p>
+  <ol class="routes">
+    {% for trunk in trunks %}
+    <li class="{{ '' if trunk.enabled else 'muted' }}">
+      <strong>{{ trunk.label }}</strong>
+      <code>{{ trunk.dial_template }}</code>
+      {% if not trunk.enabled %}<span class="badge off">désactivée</span>{% endif %}
+    </li>
+    {% else %}
+    <li class="empty">Aucune route : les appels vers l'extérieur échoueront.
+      <a href="/trunks">En ajouter une</a>.</li>
+    {% endfor %}
+  </ol>
+</section>
+
+{% endblock %}

@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Journal d'appels — {{ settings.site_name }}{% endblock %}
+{% block content %}
+
+<h1>Journal d'appels</h1>
+<p class="hint">Lecture seule des 100 derniers enregistrements de
+  <code>{{ cdr_path }}</code>.</p>
+
+<section class="card">
+  <table>
+    <thead>
+      <tr><th>Début</th><th>De</th><th>Vers</th><th>Contexte</th><th>Durée</th>
+          <th>Conversation</th><th>Résultat</th></tr>
+    </thead>
+    <tbody>
+      {% for call in calls %}
+      <tr>
+        <td>{{ call.start }}</td>
+        <td>{{ call.src or "—" }}</td>
+        <td>{{ call.dst }}</td>
+        <td class="dim">{{ call.dcontext }}</td>
+        <td>{{ call.duration }} s</td>
+        <td>{{ call.billsec }} s</td>
+        <td>
+          {% if call.disposition == "ANSWERED" %}
+            <span class="badge good">décroché</span>
+          {% elif call.disposition == "NO ANSWER" %}
+            <span class="badge">sans réponse</span>
+          {% elif call.disposition == "BUSY" %}
+            <span class="badge">occupé</span>
+          {% else %}
+            <span class="badge bad">{{ call.disposition }}</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="7" class="empty">
+        Aucun enregistrement lisible. Vérifiez que <code>cdr.conf</code> active le CSV
+        et que le fichier existe.
+      </td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+{% endblock %}
