@@ -174,6 +174,43 @@ supervision, la stabilité prime.
 
 ---
 
+## 11. Le provisionnement des ATA est un service séparé
+
+**Décision.** `telephonie-prov` est un second processus, exposant uniquement la lecture
+d'un fichier de configuration, écoutant sur le VLAN voix. L'interface d'administration
+reste sur `127.0.0.1`, dans un autre processus.
+
+**Pourquoi.** Un ATA n'a pas d'identité avant d'être configuré : il ne peut rien présenter
+pour s'authentifier, donc ces routes sont forcément ouvertes à qui atteint le port. Les
+servir depuis l'application d'administration obligerait à faire écouter celle-ci sur le
+VLAN voix — et à ne compter que sur le routage interne pour que les écrans de gestion
+restent hors de portée. Deux processus, deux ports, deux périmètres : la séparation est
+structurelle plutôt que déclarative, et un test le vérifie explicitement.
+
+**Ce qu'on perd** : une unité systemd de plus à surveiller.
+
+---
+
+## 12. Les P-values Grandstream ne sont pas devinées
+
+**Décision.** Le profil `grandstream-ht80x` est livré marqué `verified = False`, l'interface
+l'affiche en rouge, et `scripts/prov-import.py` déduit les bons numéros d'un appareil réel.
+
+**Pourquoi.** Grandstream numérote ses réglages plutôt que de les nommer, et ces numéros
+changent selon le modèle et le firmware. Un numéro erroné n'échoue pas : l'appareil ignore
+la ligne et garde son ancien réglage, sans rien journaliser. Livrer une table de valeurs
+plausibles en la présentant comme fonctionnelle aurait produit exactement la panne la plus
+coûteuse à diagnostiquer — un ATA silencieusement non enregistré, sans aucun indice.
+
+L'outil de validation cherche les valeurs connues dans un export de l'appareil et signale
+quand une valeur attendue se trouve sous un autre numéro. C'est le seul signal qui
+distingue « notre carte est fausse » de « cette valeur diffère légitimement ».
+
+**Ce qu'on perd** : le provisionnement n'est pas opérationnel dès la première minute, il
+demande une validation de deux minutes sur un appareil.
+
+---
+
 ## Écarts par rapport à l'architecture initiale
 
 | Sujet | Version initiale | Ici | Motif |

@@ -67,7 +67,7 @@ def test_mauvais_mot_de_passe_refuse(sample):
 @pytest.mark.parametrize(
     "path",
     ["/", "/devices", "/users", "/groups", "/speed-dials", "/trunks",
-     "/settings", "/apply", "/revisions", "/calls", "/audit"],
+     "/settings", "/apply", "/revisions", "/calls", "/audit", "/provisioning"],
 )
 def test_toutes_les_pages_repondent(client, path):
     """Garde-fou contre une erreur de gabarit qui ne se verrait qu'à l'usage."""
@@ -202,6 +202,76 @@ def test_journal_d_audit_trace_les_actions(client):
     html = client.get("/audit").text
     assert "login" in html
     assert "setup" in html
+
+
+# --- Provisionnement --------------------------------------------------------
+
+def _device_form(csrf, **overrides):
+    data = {
+        "csrf": csrf, "slug": "garage", "label": "Garage", "kind": "fxs",
+        "extension": "102", "codecs": "alaw,ulaw", "max_contacts": "1",
+        "mailbox": "", "dial_mode": "direct", "hotline_target": "",
+        "ring_time": "30", "notes": "", "mac": "", "prov_profile": "grandstream-ht80x",
+    }
+    data.update(overrides)
+    return data
+
+
+def test_mac_saisie_dans_n_importe_quel_format_est_normalisee(client):
+    csrf = _csrf(client.get("/devices").text)
+    response = client.post("/devices", data=_device_form(csrf, mac="00-1A-2B-3C-4D-5E"),
+                           follow_redirects=False)
+    assert "err=" not in response.headers["location"]
+    assert sample_row(client, "SELECT mac FROM devices WHERE slug = 'garage'") == "001a2b3c4d5e"
+
+
+def test_mac_invalide_refusee_avec_un_message_clair(client):
+    csrf = _csrf(client.get("/devices").text)
+    response = client.post("/devices", data=_device_form(csrf, mac="pas-une-mac"),
+                           follow_redirects=False)
+    assert "err=" in response.headers["location"]
+    assert "MAC+invalide" in response.headers["location"]
+
+
+def test_mac_en_double_refusee(client):
+    csrf = _csrf(client.get("/devices").text)
+    # 000b82aabbcc est déjà celle du salon (voir la fixture).
+    response = client.post("/devices", data=_device_form(csrf, mac="00:0b:82:aa:bb:cc"),
+                           follow_redirects=False)
+    assert "err=" in response.headers["location"]
+
+
+def test_sans_mac_aucun_profil_n_est_enregistre(client):
+    """Un profil sans MAC ne sert à rien et laisserait croire, sur l'écran de
+    provisionnement, que l'appareil est pris en charge."""
+    csrf = _csrf(client.get("/devices").text)
+    client.post("/devices", data=_device_form(csrf, mac=""), follow_redirects=False)
+    assert sample_row(client, "SELECT COUNT(*) FROM devices WHERE slug = 'garage' "
+                              "AND prov_profile IS NULL") == 1
+
+
+def test_apercu_du_xml_reserve_aux_connectes(client, sample):
+    anonymous_status = None
+    with TestClient(app) as anonymous:
+        anonymous_status = anonymous.get("/provisioning/1/preview",
+                                         follow_redirects=False).status_code
+    assert anonymous_status == 303
+
+    response = client.get("/provisioning/1/preview")
+    assert response.status_code == 200
+    assert "<gs_provision" in response.text
+
+
+def test_apercu_refuse_pour_un_poste_sans_mac(client, sample):
+    sample.execute("UPDATE devices SET mac = NULL WHERE id = 1")
+    sample.commit()
+    assert client.get("/provisioning/1/preview").status_code == 404
+
+
+def test_l_ecran_avertit_quand_le_serveur_sip_n_est_pas_regle(client):
+    html = client.get("/provisioning").text
+    assert "est vide" in html
+    assert "non vérifiés" in html   # avertissement sur les P-values
 
 
 # --- API JSON ---------------------------------------------------------------

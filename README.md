@@ -15,6 +15,8 @@ jamais éditer un fichier `.conf` à la main.
 - **Messagerie vocale** par poste et par personne, avec envoi par courriel.
 - **Interface web** : ajout d'un poste, d'une personne, d'un numéro abrégé, aperçu du
   diff avant application, historique des configurations et retour arrière.
+- **Provisionnement des ATA Grandstream** : l'appareil récupère son compte SIP tout seul
+  au démarrage, à partir de son adresse MAC — plus rien à recopier dans son interface web.
 
 ## Le principe à retenir
 
@@ -82,6 +84,7 @@ ssh -L 8080:127.0.0.1:8080 vous@la-vm
 | [07 — Dépannage](docs/07-depannage.md) | Symptôme → cause → commande |
 | [08 — Matériel](docs/08-materiel.md) | Réglages des ATA, du DECT, du module GSM |
 | [09 — Choix techniques](docs/09-choix-techniques.md) | Décisions prises, et ce qu'elles écartent |
+| [10 — Provisionnement](docs/10-provisionnement.md) | Configuration automatique des ATA Grandstream |
 
 ## Arborescence
 

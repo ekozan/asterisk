@@ -21,10 +21,27 @@ def connect() -> sqlite3.Connection:
     return conn
 
 
+# Colonnes ajoutées après la première mise en service. `CREATE TABLE IF NOT
+# EXISTS` ne les ajoute pas à une base existante : il faut un ALTER explicite.
+# Chaque entrée est (table, colonne, définition SQL).
+_MIGRATIONS: list[tuple[str, str, str]] = [
+    ("devices", "mac", "TEXT"),
+    ("devices", "prov_profile", "TEXT"),
+]
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    for table, column, definition in _MIGRATIONS:
+        existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+        if column not in existing:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
+
 def init_db() -> None:
-    """Crée le schéma s'il manque et insère les réglages par défaut absents."""
+    """Crée le schéma s'il manque, applique les migrations, insère les défauts."""
     with connect() as conn:
         conn.executescript(_SCHEMA.read_text(encoding="utf-8"))
+        _migrate(conn)
         for key, value in config.DEFAULT_SETTINGS.items():
             conn.execute(
                 "INSERT INTO settings (key, value) VALUES (?, ?) "

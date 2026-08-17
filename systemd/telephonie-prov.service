@@ -1,0 +1,40 @@
+[Unit]
+Description=Service de provisionnement des ATA
+Documentation=file:///opt/telephonie/docs/10-provisionnement.md
+After=network.target
+
+[Service]
+Type=simple
+User=asterisk
+Group=asterisk
+WorkingDirectory=/opt/telephonie
+Environment=TELEPHONIE_DATA_DIR=/var/lib/telephonie
+# Écoute par défaut sur la boucle locale : tant que l'adresse n'est pas celle
+# du vNIC voix, aucun ATA ne peut joindre le service. Le fichier ci-dessous
+# est écrit par bootstrap.sh quand --voip-ip est fourni.
+Environment=TELEPHONIE_PROV_HOST=127.0.0.1
+Environment=TELEPHONIE_PROV_PORT=8081
+EnvironmentFile=-/etc/telephonie/prov.env
+ExecStart=/opt/telephonie/venv/bin/uvicorn app.prov:app \
+          --host $TELEPHONIE_PROV_HOST --port $TELEPHONIE_PROV_PORT
+Restart=on-failure
+RestartSec=5
+
+# --- Durcissement ---------------------------------------------------------
+# Ce service est le seul joignable depuis le VLAN voix : il est donc le plus
+# exposé de l'installation, et n'a besoin d'écrire nulle part.
+ProtectSystem=strict
+ReadWritePaths=/var/lib/telephonie
+ProtectHome=yes
+PrivateTmp=yes
+NoNewPrivileges=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

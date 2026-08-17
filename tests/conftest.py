@@ -42,8 +42,9 @@ def sample(conn):
     personne qui en couvre deux, un groupe, deux trunks en failover."""
     conn.executescript(
         """
-        INSERT INTO devices (slug, label, kind, extension, secret, mailbox)
-          VALUES ('salon', 'Salon', 'fxs', '100', 'secret1', '100');
+        INSERT INTO devices (slug, label, kind, extension, secret, mailbox, mac, prov_profile)
+          VALUES ('salon', 'Salon', 'fxs', '100', 'secret1', '100',
+                  '000b82aabbcc', 'grandstream-ht80x');
         INSERT INTO devices (slug, label, kind, extension, secret, codecs, max_contacts)
           VALUES ('mobile', 'Mobile', 'mobile', '104', 'secret2', 'opus,alaw', 2);
         INSERT INTO devices (slug, label, kind, secret)

@@ -9,7 +9,9 @@ from io import StringIO
 
 from fastapi import APIRouter, Depends, Form, Request
 
-from . import asterisk, config, db, generator
+from fastapi.responses import PlainTextResponse
+
+from . import asterisk, config, db, generator, provisioning
 from .webutil import clean, current_session, get_conn, page, redirect, require_csrf
 
 router = APIRouter()
@@ -38,6 +40,9 @@ EDITABLE_SETTINGS = [
     ("ivr_timeout", "Délai d'attente d'un choix au menu (s)", "number"),
     ("hotline_prompt", "Son joué au décroché d'un poste « hotline »", "text"),
     ("general_voicemail", "Boîte vocale générale", "text"),
+    ("prov_sip_server", "Provisionnement : serveur SIP écrit dans les ATA", "text"),
+    ("prov_server_url", "Provisionnement : URL du service (pour les ATA)", "text"),
+    ("prov_admin_password", "Provisionnement : mot de passe admin des ATA", "text"),
 ]
 
 
@@ -192,6 +197,48 @@ def calls_page(request: Request, conn: sqlite3.Connection = Depends(get_conn)):
         request, conn, session, "calls.html",
         calls=_read_cdr(),
         cdr_path=str(config.CDR_CSV),
+    )
+
+
+# ============================================================================
+# Provisionnement automatique des ATA
+# ============================================================================
+
+@router.get("/provisioning")
+def provisioning_page(request: Request, conn: sqlite3.Connection = Depends(get_conn)):
+    session = current_session(request, conn)
+    settings = db.get_settings(conn)
+    devices = provisioning.provisionable_devices(conn)
+
+    return page(
+        request, conn, session, "provisioning.html",
+        devices=devices,
+        profiles=provisioning.PROFILES,
+        unverified=[p for p in provisioning.PROFILES.values() if not p.verified],
+        sip_server_missing=not settings.get("prov_sip_server"),
+        recent=db.query(
+            conn,
+            "SELECT * FROM audit_log WHERE action LIKE 'prov-%' ORDER BY id DESC LIMIT 20",
+        ),
+    )
+
+
+@router.get("/provisioning/{device_id}/preview", response_class=PlainTextResponse)
+def provisioning_preview(
+    device_id: int, request: Request, conn: sqlite3.Connection = Depends(get_conn)
+):
+    """Aperçu authentifié du XML qui sera servi à l'appareil.
+
+    Sert aussi à vérifier ce qu'on pousse AVANT de redémarrer un ATA — un
+    fichier erroné laisse l'appareil injoignable sans message d'erreur.
+    """
+    current_session(request, conn)
+    device = db.one(conn, "SELECT * FROM devices WHERE id = ?", (device_id,))
+    if device is None or not device["mac"]:
+        return PlainTextResponse("Poste inconnu ou sans adresse MAC.", status_code=404)
+    return PlainTextResponse(
+        provisioning.build_config(device, db.get_settings(conn)),
+        media_type="text/xml",
     )
 
 

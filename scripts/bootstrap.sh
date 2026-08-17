@@ -433,6 +433,19 @@ install_app() {
       ok "écoute SIP restreinte à ${VOIP_IP}:5060"
     fi
   fi
+
+  # Provisionnement des ATA : le service n'est joignable depuis le VLAN voix
+  # que si on lui donne une adresse d'écoute. Sans --voip-ip, il reste sur la
+  # boucle locale et aucun appareil ne peut l'atteindre.
+  if [[ -n "$VOIP_IP" ]]; then
+    run install -d -m 0755 /etc/telephonie
+    run bash -c "printf 'TELEPHONIE_PROV_HOST=%s\nTELEPHONIE_PROV_PORT=8081\n' '${VOIP_IP}' > /etc/telephonie/prov.env"
+    run systemctl restart telephonie-prov
+    ok "provisionnement des ATA joignable sur ${VOIP_IP}:8081"
+  else
+    warn "provisionnement des ATA laissé sur 127.0.0.1 : sans --voip-ip, aucun"
+    warn "  appareil ne peut le joindre. Voir docs/10-provisionnement.md."
+  fi
 }
 
 # ============================================================================
@@ -463,6 +476,15 @@ harden() {
   fi
   run "${sip_rule[@]}"
   run "${rtp_rule[@]}"
+
+  # Provisionnement : ouvert au VLAN voix seulement si le service y écoute.
+  if [[ -n "$VOIP_IP" ]]; then
+    local prov_rule=(ufw allow in from "$VOIP_NET" to any port 8081 proto tcp)
+    [[ -n "$VOIP_IFACE" ]] && prov_rule=(ufw allow in on "$VOIP_IFACE" from "$VOIP_NET" to any port 8081 proto tcp)
+    run "${prov_rule[@]}"
+    ok "provisionnement ouvert au VLAN voix (8081/tcp)"
+  fi
+
   run ufw --force enable
   ok "pare-feu actif : SIP et RTP depuis $VOIP_NET uniquement"
 
@@ -539,6 +561,19 @@ start_services() {
 
   run systemctl restart telephonie-ui
   ok "interface de gestion démarrée"
+
+  # Pré-remplir les réglages de provisionnement, maintenant que la base existe
+  # (elle est créée au démarrage du service). On n'écrase jamais une valeur
+  # déjà saisie dans l'interface.
+  if [[ -n "$VOIP_IP" && $DRY_RUN -eq 0 ]]; then
+    sudo -u asterisk sqlite3 /var/lib/telephonie/telephonie.db <<SQL >>"$LOG" 2>&1 || true
+UPDATE settings SET value = '${VOIP_IP}'
+  WHERE key = 'prov_sip_server' AND (value IS NULL OR value = '');
+UPDATE settings SET value = 'http://${VOIP_IP}:8081'
+  WHERE key = 'prov_server_url' AND (value IS NULL OR value = '');
+SQL
+    ok "réglages de provisionnement pré-remplis avec ${VOIP_IP}"
+  fi
 }
 
 # ============================================================================

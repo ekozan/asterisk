@@ -77,4 +77,8 @@ DEFAULT_SETTINGS: dict[str, str] = {
     "general_voicemail": "199",
     "voicemail_email_from": "asterisk@localhost",
     "outbound_ring_time": "30",
+    # Provisionnement automatique des ATA.
+    "prov_sip_server": "",       # IP ou nom du serveur SIP écrit dans les ATA
+    "prov_server_url": "",       # URL du service de provisionnement, pour l'écran dédié
+    "prov_admin_password": "",   # mot de passe admin poussé dans les ATA (vide = inchangé)
 }

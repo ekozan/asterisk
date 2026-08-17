@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+{% block title %}Provisionnement — {{ settings.site_name }}{% endblock %}
+{% block content %}
+
+<h1>Provisionnement automatique</h1>
+<p class="hint">
+  Un ATA dont l'adresse MAC est déclarée va chercher sa configuration au démarrage : plus
+  besoin de recopier l'identifiant et le mot de passe SIP dans son interface web, ni de
+  recommencer après un retour aux réglages d'usine.
+</p>
+
+{% if unverified %}
+<div class="flash err">
+  <strong>Numéros de P-value non vérifiés sur votre matériel.</strong>
+  Grandstream désigne chaque réglage par un numéro qui varie selon le modèle et la version
+  de firmware. Un numéro erroné est ignoré <em>en silence</em> par l'appareil : il garde son
+  ancien réglage, sans message d'erreur. Validez la correspondance sur un premier appareil
+  avant d'en provisionner plusieurs — la procédure prend deux minutes et se trouve dans
+  <code>docs/10-provisionnement.md</code> (script <code>scripts/prov-import.py</code>).
+</div>
+{% endif %}
+
+{% if sip_server_missing %}
+<div class="flash err">
+  Le réglage <strong>« Provisionnement : serveur SIP écrit dans les ATA »</strong> est vide :
+  les appareils recevraient une configuration sans serveur où s'enregistrer.
+  <a href="/settings">Le renseigner</a> avec l'IP du vNIC voix de la VM.
+</div>
+{% endif %}
+
+<section class="card">
+  <h2>À régler une fois par appareil</h2>
+  <p class="hint">Dans l'interface web de l'ATA, <em>Maintenance → Upgrade and
+    Provisioning</em> :</p>
+  <table>
+    <tbody>
+      <tr><th>Upgrade Via</th><td><code>HTTP</code></td></tr>
+      <tr><th>Config Server Path</th>
+          <td><code>{{ settings.prov_server_url or "renseignez « URL du service » dans les réglages" }}</code></td></tr>
+      <tr><th>Automatic Upgrade</th><td>activé, si vous voulez que l'appareil se resynchronise seul</td></tr>
+    </tbody>
+  </table>
+  <p class="hint">
+    Cette étape peut être évitée entièrement en publiant l'URL par l'option DHCP 66 depuis
+    OPNsense : l'appareil la récupère alors à sa première mise sous tension, et le
+    provisionnement devient réellement sans contact.
+  </p>
+</section>
+
+<section class="card">
+  <h2>Appareils</h2>
+  <table>
+    <thead>
+      <tr><th>Poste</th><th>Adresse MAC</th><th>Fichier servi</th><th>Profil</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for device in devices %}
+      <tr class="{{ '' if device.enabled else 'muted' }}">
+        <td>{{ device.label }}<br><code class="dim">{{ device.slug }}</code></td>
+        <td><code>{{ device.mac_display }}</code></td>
+        <td>
+          {% if not device.mac %}
+            <span class="badge">configuration manuelle</span>
+          {% elif not device.enabled %}
+            <span class="badge off">poste désactivé — rien n'est servi</span>
+          {% else %}
+            <code>{{ device.filename }}</code>
+          {% endif %}
+        </td>
+        <td>
+          {% if device.profile %}
+            {{ device.profile.label }}
+            {% if not device.profile.verified %}<span class="badge bad">à vérifier</span>{% endif %}
+          {% else %}
+            <span class="dim">—</span>
+          {% endif %}
+        </td>
+        <td class="row-actions">
+          {% if device.mac %}
+          <a class="button" href="/provisioning/{{ device.id }}/preview" target="_blank">Voir le XML</a>
+          {% endif %}
+          <a class="button" href="/devices?edit={{ device.id }}">Modifier</a>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5" class="empty">Aucun poste déclaré.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="card">
+  <h2>Ordre des opérations</h2>
+  <p class="hint">Le mot de passe servi à l'ATA vient de la base, celui qu'Asterisk accepte
+    vient des fichiers générés. Les deux ne coïncident qu'après un passage par
+    « Appliquer ».</p>
+  <ol class="routes">
+    <li>Créer ou modifier le poste, saisir son adresse MAC.</li>
+    <li><a href="/apply">Appliquer la configuration</a> — Asterisk apprend le mot de passe.</li>
+    <li>Redémarrer l'ATA, ou attendre sa resynchronisation automatique.</li>
+  </ol>
+  <p class="hint">Dans l'autre ordre, l'appareil se présente avec un mot de passe
+    qu'Asterisk ne connaît pas encore et reste « non enregistré » jusqu'au prochain cycle.</p>
+</section>
+
+<section class="card">
+  <h2>Dernières requêtes reçues</h2>
+  <p class="hint">« Est-ce que l'ATA a seulement demandé sa configuration ? » — la première
+    question à se poser quand un appareil ne se configure pas.</p>
+  <table>
+    <thead><tr><th>Date</th><th>Appareil</th><th>Résultat</th><th>MAC demandée</th></tr></thead>
+    <tbody>
+      {% for entry in recent %}
+      <tr>
+        <td>{{ entry.at }}</td>
+        <td><code>{{ entry.actor }}</code></td>
+        <td>
+          {% if entry.action == "prov-servi" %}
+            <span class="badge good">configuration servie</span>
+          {% elif entry.action == "prov-inconnu" %}
+            <span class="badge bad">MAC non déclarée</span>
+          {% else %}
+            <span class="badge bad">MAC invalide</span>
+          {% endif %}
+        </td>
+        <td><code>{{ entry.detail }}</code></td>
+      </tr>
+      {% else %}
+      <tr><td colspan="4" class="empty">
+        Aucune requête reçue. Le service de provisionnement est-il démarré et joignable
+        depuis le VLAN voix ? <code>systemctl status telephonie-prov</code>
+      </td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+{% endblock %}

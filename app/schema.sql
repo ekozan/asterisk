@@ -29,6 +29,10 @@ CREATE TABLE IF NOT EXISTS devices (
     hotline_target TEXT,                      -- extension composée au décroché si hotline
     ring_time      INTEGER NOT NULL DEFAULT 30,
     notes          TEXT,
+    -- Provisionnement automatique : adresse MAC normalisée (12 hex minuscules)
+    -- et profil d'appareil. NULL = l'appareil se configure à la main.
+    mac            TEXT    UNIQUE,
+    prov_profile   TEXT,
     enabled        INTEGER NOT NULL DEFAULT 1,
     created_at     TEXT    NOT NULL DEFAULT (datetime('now')),
     updated_at     TEXT    NOT NULL DEFAULT (datetime('now')),

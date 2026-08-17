@@ -90,16 +90,24 @@ if [[ $WITH_CONF -eq 1 ]]; then
   echo "    Ancienne configuration conservée dans $BACKUP"
 fi
 
-echo "==> Service systemd"
+echo "==> Services systemd"
 install -m 0644 "$REPO/systemd/telephonie-ui.service" /etc/systemd/system/
+install -m 0644 "$REPO/systemd/telephonie-prov.service" /etc/systemd/system/
+install -d -m 0755 /etc/telephonie
 systemctl daemon-reload
 systemctl enable --now telephonie-ui.service
+# Le service de provisionnement écoute sur la boucle locale tant que
+# /etc/telephonie/prov.env ne lui donne pas l'IP du VLAN voix : aucun ATA ne
+# peut donc l'atteindre avant que ce soit un choix explicite.
+systemctl enable --now telephonie-prov.service
 
 echo
 echo "Terminé."
 echo "  UI       : http://127.0.0.1:8080 (créez le compte admin au premier accès)"
 echo "  Tunnel   : ssh -L 8080:127.0.0.1:8080 <vous>@<vm>"
 echo "  Données  : $DATA/telephonie.db"
+echo "  Provis.  : écoute sur 127.0.0.1:8081 — pour l'ouvrir au VLAN voix, voir"
+echo "             docs/10-provisionnement.md"
 echo
 echo "Pour partir de l'installation de référence plutôt que d'une base vide :"
 echo "  sudo -u asterisk $PREFIX/venv/bin/python $PREFIX/scripts/seed.py"

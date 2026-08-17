@@ -28,6 +28,10 @@ Trois pièges récurrents :
 
 ## Grandstream HT801 — poste du garage
 
+> Ces réglages peuvent être poussés automatiquement plutôt que saisis à la main : voir
+> [10 — Provisionnement](10-provisionnement.md). Configurez tout de même **le premier
+> appareil à la main** — c'est lui qui sert à valider la correspondance des P-values.
+
 Interface web sur le port 80, mot de passe par défaut `admin` (à changer immédiatement).
 
 - *FXS Port* → **SIP Server** : `10.0.90.20`

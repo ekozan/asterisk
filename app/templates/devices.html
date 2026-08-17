@@ -74,6 +74,22 @@
       <span class="hint">À reporter dans le champ « Offhook Auto-Dial » de l'ATA.</span>
     </label>
 
+    <label>Adresse MAC
+      <input name="mac" value="{{ format_mac(editing.mac) if editing and editing.mac else '' }}"
+             placeholder="00:0b:82:aa:bb:cc">
+      <span class="hint">Renseignée, l'appareil récupère sa configuration tout seul
+        (<a href="/provisioning">provisionnement</a>). Vide = configuration à la main.</span>
+    </label>
+
+    <label>Profil de provisionnement
+      <select name="prov_profile">
+        {% for key, profile in profiles.items() %}
+        <option value="{{ key }}"
+          {{ 'selected' if editing and editing.prov_profile == key }}>{{ profile.label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+
     <label class="wide">Notes
       <input name="notes" value="{{ editing.notes or '' if editing else '' }}"
              placeholder="TA200 port 1, prise murale salon">

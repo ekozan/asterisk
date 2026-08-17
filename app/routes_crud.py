@@ -11,7 +11,7 @@ import sqlite3
 
 from fastapi import APIRouter, Depends, Form, Request
 
-from . import db, generator, security
+from . import db, generator, provisioning, security
 from .webutil import (
     clean, clean_or_none, current_session, form_int, get_conn, page, redirect, require_csrf,
 )
@@ -27,10 +27,32 @@ DEVICE_KINDS = {
 }
 
 
+def _parse_mac(raw: str) -> tuple[str | None, str | None]:
+    """(mac normalisée, message d'erreur). Un champ vide est valide : il
+    signifie simplement que l'appareil se configure à la main."""
+    if not clean(raw):
+        return None, None
+    normalized = provisioning.normalize_mac(raw)
+    if normalized is None:
+        return None, (f"Adresse MAC invalide : « {clean(raw)} ». "
+                      "Attendu 12 caractères hexadécimaux, séparateurs libres.")
+    return normalized, None
+
+
+def _parse_profile(raw: str, mac: str | None) -> str | None:
+    """Sans MAC, le profil n'a aucun sens : on ne le stocke pas."""
+    if mac is None:
+        return None
+    value = clean(raw)
+    return value if value in provisioning.PROFILES else provisioning.DEFAULT_PROFILE
+
+
 def _integrity_message(exc: sqlite3.IntegrityError) -> str:
     text = str(exc)
     if "devices.slug" in text:
         return "Cet identifiant de poste est déjà pris."
+    if "devices.mac" in text or "mac" in text:
+        return "Cette adresse MAC est déjà attribuée à un autre poste."
     if "extension" in text:
         return "Ce numéro est déjà attribué."
     if "menu_digit" in text:
@@ -58,6 +80,8 @@ def devices_list(request: Request, conn: sqlite3.Connection = Depends(get_conn))
         devices=generator.load_devices(conn, only_enabled=False),
         kinds=DEVICE_KINDS,
         editing=editing,
+        profiles=provisioning.PROFILES,
+        format_mac=provisioning.format_mac,
     )
 
 
@@ -76,6 +100,8 @@ def device_create(
     hotline_target: str = Form(""),
     ring_time: str = Form("30"),
     notes: str = Form(""),
+    mac: str = Form(""),
+    prov_profile: str = Form(""),
     conn: sqlite3.Connection = Depends(get_conn),
 ):
     session = current_session(request, conn)
@@ -88,6 +114,10 @@ def device_create(
     if kind not in DEVICE_KINDS:
         return redirect("/devices", err="Type de poste inconnu.")
 
+    mac_value, mac_error = _parse_mac(mac)
+    if mac_error:
+        return redirect("/devices", err=mac_error)
+
     extension_value = clean_or_none(extension)
     # Par défaut, la boîte vocale porte le numéro du poste : c'est ce que
     # suppose le code de service *97.
@@ -96,15 +126,15 @@ def device_create(
     try:
         conn.execute(
             "INSERT INTO devices (slug, label, kind, extension, secret, codecs, max_contacts, "
-            "mailbox, dial_mode, hotline_target, ring_time, notes) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            "mailbox, dial_mode, hotline_target, ring_time, notes, mac, prov_profile) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (
                 slug_value, clean(label), kind, extension_value,
                 security.generate_secret(), clean(codecs) or "alaw,ulaw",
                 form_int(max_contacts, 1, 1, 10), mailbox_value,
                 dial_mode if dial_mode in ("direct", "hotline") else "direct",
                 clean_or_none(hotline_target), form_int(ring_time, 30, 5, 120),
-                clean_or_none(notes),
+                clean_or_none(notes), mac_value, _parse_profile(prov_profile, mac_value),
             ),
         )
     except sqlite3.IntegrityError as exc:
@@ -131,24 +161,31 @@ def device_update(
     hotline_target: str = Form(""),
     ring_time: str = Form("30"),
     notes: str = Form(""),
+    mac: str = Form(""),
+    prov_profile: str = Form(""),
     enabled: str = Form("0"),
     conn: sqlite3.Connection = Depends(get_conn),
 ):
     session = current_session(request, conn)
     require_csrf(session, csrf)
 
+    mac_value, mac_error = _parse_mac(mac)
+    if mac_error:
+        return redirect("/devices", err=mac_error)
+
     try:
         conn.execute(
             "UPDATE devices SET label=?, kind=?, extension=?, codecs=?, max_contacts=?, "
-            "mailbox=?, dial_mode=?, hotline_target=?, ring_time=?, notes=?, enabled=?, "
-            "updated_at=datetime('now') WHERE id=?",
+            "mailbox=?, dial_mode=?, hotline_target=?, ring_time=?, notes=?, mac=?, "
+            "prov_profile=?, enabled=?, updated_at=datetime('now') WHERE id=?",
             (
                 clean(label), kind if kind in DEVICE_KINDS else "fxs",
                 clean_or_none(extension), clean(codecs) or "alaw,ulaw",
                 form_int(max_contacts, 1, 1, 10), clean_or_none(mailbox),
                 dial_mode if dial_mode in ("direct", "hotline") else "direct",
                 clean_or_none(hotline_target), form_int(ring_time, 30, 5, 120),
-                clean_or_none(notes), 1 if enabled == "1" else 0, device_id,
+                clean_or_none(notes), mac_value, _parse_profile(prov_profile, mac_value),
+                1 if enabled == "1" else 0, device_id,
             ),
         )
     except sqlite3.IntegrityError as exc:
