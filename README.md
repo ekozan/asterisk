@@ -43,7 +43,7 @@ compilation d'Asterisk 22 avec les sons français, chan-quectel, Piper, interfac
 configuration, durcissement.
 
 ```bash
-git clone <ce-dépôt> /root/telephonie && cd /root/telephonie
+git clone https://github.com/ekozan/asterisk /root/telephonie && cd /root/telephonie
 
 # Voir ce qui serait fait, sans rien modifier
 sudo ./scripts/bootstrap.sh --dry-run --with-gsm

@@ -109,7 +109,7 @@ où on en a besoin.
 sudo apt update && sudo apt full-upgrade -y
 # Le dépôt est cloné dès maintenant : plusieurs étapes suivantes y puisent des
 # fichiers (configuration Asterisk, script de synthèse vocale, unités systemd).
-sudo git clone <ce-dépôt> /root/telephonie
+sudo git clone https://github.com/ekozan/asterisk /root/telephonie
 sudo apt install -y build-essential git wget curl pkg-config \
   libjansson-dev libxml2-dev libsqlite3-dev uuid-dev libedit-dev libssl-dev \
   libsrtp2-dev sox alsa-utils usbutils cmake python3-venv python3-pip \
