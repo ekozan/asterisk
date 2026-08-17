@@ -163,6 +163,33 @@ sudo -u asterisk /opt/piper-voices/generate.sh "Test." essai
 
 ---
 
+## Le script d'installation s'arrête en cours de route
+
+Le script est reprenable : corrigez la cause, puis **relancez la même commande**. Les
+étapes déjà réussies sont notées dans `/var/lib/telephonie/.bootstrap/` et seront sautées.
+
+```bash
+sudo tail -50 /var/log/telephonie-install.log     # la vraie erreur est ici
+ls /var/lib/telephonie/.bootstrap/                # étapes déjà validées
+```
+
+| Symptôme | Cause |
+|---|---|
+| `moins de 3 Go libres sur /usr/src` | La compilation a besoin de place : agrandir le disque de la VM |
+| `résolution DNS impossible` | Réseau ou DNS de la VM ; vérifier `netplan` et la route par défaut |
+| Échec pendant `make` | Une dépendance manque : relancer `contrib/scripts/install_prereq install` puis le script |
+| `--with-hardening exige --admin-net` | Garde-fou volontaire : sans réseau d'administration, le pare-feu couperait SSH |
+| La voix Piper ne se télécharge pas | Le script continue et le signale ; déposer les deux fichiers à la main, voir l'étape 5 |
+
+Pour repartir vraiment de zéro sur une étape :
+
+```bash
+sudo rm /var/lib/telephonie/.bootstrap/asterisk   # ou packages, quectel, piper, hardening
+sudo ./scripts/bootstrap.sh ...
+```
+
+---
+
 ## L'interface ne démarre pas
 
 ```bash

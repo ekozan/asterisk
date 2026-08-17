@@ -1,11 +1,67 @@
 # Installation, de la VM vierge à l'installation complète
 
-Cette procédure part d'une VM Ubuntu Server 24.04 LTS neuve. Comptez une heure, dont
-une vingtaine de minutes de compilation.
+## Le raccourci : `bootstrap.sh`
+
+Tout ce que décrit ce document est automatisé par un script. Sur une VM Ubuntu Server
+24.04 LTS neuve :
+
+```bash
+sudo git clone <ce-dépôt> /root/telephonie
+cd /root/telephonie
+
+# 1. Regarder ce qui serait fait, sans rien modifier
+sudo ./scripts/bootstrap.sh --dry-run --with-gsm --with-hardening \
+     --voip-net 10.0.90.0/24 --voip-iface ens192 \
+     --admin-net 10.0.5.0/24 --admin-iface ens160
+
+# 2. Lancer pour de vrai (mêmes options, sans --dry-run)
+sudo ./scripts/bootstrap.sh --with-gsm --with-hardening \
+     --voip-net 10.0.90.0/24 --voip-iface ens192 \
+     --admin-net 10.0.5.0/24 --admin-iface ens160
+```
+
+Trois propriétés qui comptent sur une procédure de vingt minutes :
+
+- **Reprenable.** Chaque étape réussie est notée dans
+  `/var/lib/telephonie/.bootstrap/`. Une coupure réseau en pleine compilation ne coûte
+  que de relancer la même commande : le script repart où il s'était arrêté. `--force`
+  refait tout.
+- **`--dry-run` est réel, pas approximatif.** Toute commande qui modifie la machine passe
+  par une fonction unique ; en mode simulation, aucune ne s'exécute.
+- **Le durcissement ne vous verrouille pas dehors.** SSH est autorisé dans le pare-feu
+  *avant* son activation, et l'authentification par mot de passe n'est désactivée que si
+  une clé publique existe déjà quelque part dans un `authorized_keys`.
+
+Options principales (`--help` pour la liste complète) :
+
+| Option | Effet |
+|---|---|
+| `--with-gsm` | compile chan-quectel pour le trunk GSM de secours |
+| `--with-hardening` | ufw, fail2ban, SSH par clé, mises à jour automatiques |
+| `--voip-iface` / `--voip-ip` | restreint l'écoute SIP au VLAN voix |
+| `--without-config` | n'écrit pas `/etc/asterisk` — pour reprendre une install existante |
+| `--without-tts` | n'installe pas Piper |
+| `--dry-run`, `--yes`, `--force` | simulation, non interactif, réexécution |
+
+Le script laisse volontairement quatre choses à faire à la main, et les rappelle à la fin :
+créer le compte d'administration, reporter les mots de passe SIP dans les ATA, et valider
+l'écran « Appliquer ».
+
+Journal complet dans `/var/log/telephonie-install.log`.
+
+> **Le reste de ce document décrit la même procédure, étape par étape.** Lisez-le si vous
+> préférez comprendre et exécuter vous-même, si le script échoue quelque part, ou si votre
+> installation s'écarte du cas nominal.
 
 > Vous avez déjà un Asterisk 22 qui tourne ? Sautez aux étapes [6](#6-configuration-asterisk)
 > et suivantes. La section [Reprendre une installation existante](#reprendre-une-installation-existante)
 > en fin de document explique quoi vérifier avant de remplacer la configuration en place.
+
+---
+
+# Procédure détaillée
+
+Comptez une heure, dont une vingtaine de minutes de compilation.
 
 ---
 
@@ -398,9 +454,11 @@ d'être préparée plutôt que subie.
      "UPDATE devices SET secret = 'ancien-mot-de-passe' WHERE slug = 'salon';"
    ```
 
-3. **Déployer sans écraser tout de suite** : lancez `install.sh` *sans*
-   `--with-asterisk-conf`, saisissez vos postes dans l'interface, puis comparez le
-   dialplan généré (visible dans l'écran **Appliquer**) avec l'ancien avant de basculer.
+3. **Déployer sans écraser tout de suite** : lancez `bootstrap.sh --without-config` (ou
+   `install.sh` *sans* `--with-asterisk-conf`), saisissez vos postes dans l'interface,
+   puis comparez le dialplan généré — visible dans l'écran **Appliquer** — avec l'ancien
+   avant de basculer. Le jour où vous basculez, `bootstrap.sh` sans `--without-config`
+   sauvegarde l'existant dans `/etc/asterisk/backup-<date>/` et demande confirmation.
 
 4. **Prendre un instantané de la VM** avant la bascule. C'est le filet le plus rapide à
    dérouler, et le seul qui rattrape une erreur côté système et pas seulement côté

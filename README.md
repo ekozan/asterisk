@@ -36,11 +36,28 @@ une approche où le dialplan interroge une API en AGI pendant l'appel.
 
 ## Démarrage rapide
 
-Sur une VM Ubuntu 24.04 où Asterisk 22 est déjà installé
-(sinon : [docs/02-installation.md](docs/02-installation.md)) :
+Sur une VM Ubuntu 24.04 **vierge**, un seul script fait tout : paquets,
+compilation d'Asterisk 22 avec les sons français, chan-quectel, Piper, interface,
+configuration, durcissement.
 
 ```bash
 git clone <ce-dépôt> /root/telephonie && cd /root/telephonie
+
+# Voir ce qui serait fait, sans rien modifier
+sudo ./scripts/bootstrap.sh --dry-run --with-gsm
+
+# Puis pour de vrai
+sudo ./scripts/bootstrap.sh --with-gsm --voip-iface ens192 \
+     --with-hardening --admin-net 10.0.5.0/24 --voip-net 10.0.90.0/24
+```
+
+Comptez 20 à 30 minutes, dont l'essentiel en compilation. Le script est
+**reprenable** : si quelque chose casse en route, relancez la même commande, il
+repart de l'étape interrompue. `--help` liste toutes les options.
+
+Si Asterisk est déjà installé et que vous voulez seulement l'interface :
+
+```bash
 sudo ./scripts/install.sh --with-asterisk-conf
 sudo -u asterisk /opt/telephonie/venv/bin/python /opt/telephonie/scripts/seed.py
 ```
@@ -74,7 +91,7 @@ app/              interface web (FastAPI) et générateur de configuration
   templates/      pages HTML
 asterisk/         fichiers de configuration statiques, édités à la main
 docs/             documentation
-scripts/          installation, données de départ, synthèse vocale, sauvegarde
+scripts/          bootstrap (install complète), install (UI seule), seed, TTS, sauvegarde
 systemd/          unité du service
 tests/            51 tests couvrant le générateur et l'interface
 ```
