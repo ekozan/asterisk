@@ -6,7 +6,7 @@ Tout ce que décrit ce document est automatisé par un script. Sur une VM Ubuntu
 24.04 LTS neuve :
 
 ```bash
-sudo git clone <ce-dépôt> /root/telephonie
+sudo git clone https://github.com/ekozan/asterisk/root/telephonie
 cd /root/telephonie
 
 # 1. Regarder ce qui serait fait, sans rien modifier
