@@ -16,7 +16,7 @@
 ; {{ d.notes }}
 {% endif %}
 [{{ d.slug }}]({{ d.template }})
-aors={{ d.slug }}-aor
+aors={{ d.slug }}
 auth={{ d.slug }}-auth
 context={{ d.context }}
 callerid={{ d.label }} <{{ d.extension or d.slug }}>
@@ -28,7 +28,11 @@ allow={{ codec }}
 mailboxes={{ d.mailbox }}@default
 {% endif %}
 
-[{{ d.slug }}-aor]
+; L'objet `aor` porte le même nom que l'endpoint, et ce n'est pas un raccourci :
+; sur un REGISTER, Asterisk compare la partie utilisateur de l'en-tête `To:` au
+; NOM de l'aor (res_pjsip_registrar.c). Le renommer en `{{ d.slug }}-aor` ferait
+; échouer tout enregistrement avec « AOR '' not found », sans autre indice.
+[{{ d.slug }}]
 type=aor
 max_contacts={{ d.max_contacts }}
 remove_existing=yes

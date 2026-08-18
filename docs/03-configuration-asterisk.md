@@ -51,13 +51,20 @@ Ce qui permet aux endpoints générés de tenir en quelques lignes :
 
 ```ini
 [salon](endpoint-internal)  ; hérite de tout le gabarit
-aors=salon-aor
+aors=salon
 auth=salon-auth
 context=from-internal
 ```
 
 Déplacer le `#include` avant les gabarits casserait le chargement : un gabarit n'existe
 qu'après sa déclaration.
+
+> **L'objet `aor` porte exactement l'identifiant SIP du poste**, pas un nom dérivé.
+> Sur un REGISTER, Asterisk compare la partie utilisateur de l'en-tête `To:` au *nom* de
+> l'`aor` : un `aor` appelé `salon-aor` ne serait jamais trouvé, et l'appareil resterait
+> « non enregistré » avec, côté serveur, un `AOR '' not found for endpoint 'salon'` qui
+> semble accuser l'appareil. L'objet `auth`, lui, est désigné explicitement par la ligne
+> `auth=` : son nom est libre. Un test du générateur verrouille cette règle.
 
 **Dans `voicemail.conf`**, l'inclusion est placée *à l'intérieur* d'une section :
 

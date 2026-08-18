@@ -9,12 +9,62 @@ from __future__ import annotations
 from app import generator
 
 
+def _sections(conf: str) -> list[tuple[str, str | None, str]]:
+    """Découpe un .conf en (nom, gabarit hérité, corps).
+
+    Les doublons de nom sont conservés : PJSIP autorise un endpoint et un aor
+    portant le même nom, et c'est justement ce qu'on veut vérifier.
+    """
+    out: list[tuple[str, str | None, str]] = []
+    header: tuple[str, str | None] | None = None
+    body: list[str] = []
+    for line in conf.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("[") and "]" in stripped:
+            if header is not None:
+                out.append((*header, "\n".join(body)))
+            close = stripped.index("]")
+            header = (stripped[1:close], stripped[close + 1:].strip("()") or None)
+            body = []
+        elif header is not None:
+            body.append(line)
+    if header is not None:
+        out.append((*header, "\n".join(body)))
+    return out
+
+
+def test_aor_porte_le_nom_de_l_endpoint(sample):
+    """Sur un REGISTER, Asterisk cherche un `aor` dont le NOM est la partie
+    utilisateur de l'en-tête `To:` — donc l'identifiant SIP du poste.
+
+    Un aor nommé autrement (`salon-aor`) fait échouer tout enregistrement avec
+    « AOR '' not found for endpoint 'salon' », un message qui désigne l'appareil
+    alors que la faute est dans la configuration générée.
+    """
+    sections = _sections(generator.build(sample)["pjsip_endpoints.conf"])
+    aor_names = {name for name, _, body in sections if "type=aor" in body}
+    endpoints = [(name, body) for name, template, body in sections if template]
+    assert endpoints, "aucun endpoint généré"
+
+    for name, body in endpoints:
+        declared = next(
+            line.split("=", 1)[1].strip()
+            for line in body.splitlines()
+            if line.startswith("aors=")
+        )
+        assert declared == name, (
+            f"endpoint {name} : aors={declared}, alors que l'appareil enverra "
+            f"To: <sip:{name}@…> — l'enregistrement échouera"
+        )
+        assert declared in aor_names, f"aucun objet aor nommé {declared}"
+
+
 def test_endpoints_contiennent_auth_aor_et_codecs(sample):
     conf = generator.build(sample)["pjsip_endpoints.conf"]
 
     assert "[salon](endpoint-internal)" in conf
     assert "[salon-auth]" in conf
-    assert "[salon-aor]" in conf
+    assert "aors=salon" in conf
     assert "password=secret1" in conf
     assert "mailboxes=100@default" in conf
 
@@ -22,7 +72,7 @@ def test_endpoints_contiennent_auth_aor_et_codecs(sample):
     assert "[fxo](endpoint-trunk)" in conf
 
     # Codecs propres au poste mobile, précédés d'un disallow=all.
-    mobile = conf.split("[mobile](")[1].split("[mobile-aor]")[0]
+    mobile = conf.split("[mobile](")[1].split("\n\n")[0]
     assert "disallow=all" in mobile
     assert "allow=opus" in mobile
     assert "max_contacts=2" in generator.build(sample)["pjsip_endpoints.conf"]

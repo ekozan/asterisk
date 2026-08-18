@@ -43,6 +43,30 @@ Les échecs d'authentification laissent une trace explicite :
 sudo grep -i "failed for" /var/log/asterisk/messages | tail -20
 ```
 
+### `AOR '' not found for endpoint 'salon'`
+
+Ce message accuse l'appareil à tort : il signifie qu'Asterisk n'a trouvé **aucun objet
+`aor` portant le nom demandé**. Sur un REGISTER, ce nom est la partie utilisateur de
+l'en-tête `To:` — pas le nom d'utilisateur d'authentification. Deux causes possibles :
+
+**L'appareil n'envoie pas d'utilisateur dans le `To:`.** Capturez la requête :
+
+```bash
+sudo tcpdump -i any -n host <ip-de-l-ata> and port 5060 -A -c 1 | grep -E '^(From|To):'
+```
+
+Si vous lisez `To: <sip:@10.0.90.20>` — rien avant le `@` —, le champ *User Name* de
+l'appareil est vide. Sur un Yeastar TA, c'est un champ distinct d'*Authentication Name* :
+les deux doivent porter l'identifiant SIP du poste. Et l'appareil n'applique la
+modification qu'après **Save** *puis* **Apply Changes**.
+
+**L'`aor` généré ne porte pas le bon nom.** Il doit s'appeler exactement comme
+l'identifiant SIP :
+
+```bash
+sudo asterisk -rx "pjsip show aors"      # doit lister « salon », pas « salon-aor »
+```
+
 ---
 
 ## Un appel sortant ne part pas
