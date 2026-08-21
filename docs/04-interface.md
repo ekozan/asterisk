@@ -178,6 +178,38 @@ Le bouton *Revenir à cette version* réécrit les fichiers archivés et recharg
 retour arrière, corrigez la donnée fautive dans l'interface, sinon la prochaine
 application réintroduira le problème.
 
+### Fichiers
+
+L'écran qui complète les formulaires. Une installation a deux moitiés :
+`generated/*.conf`, projetés depuis la base par les autres écrans, et les fichiers écrits
+à la main — transports SIP, gabarits d'endpoint, contextes de dialplan. Cet écran édite la
+seconde moitié, celle qui demandait jusqu'ici un accès SSH.
+
+Les fichiers générés **n'y figurent pas**, et c'est délibéré : les y modifier serait sans
+effet, le prochain « Appliquer » les réécrit sans prévenir. Pour un réglage propre à un
+poste, le champ « Configuration PJSIP supplémentaire » de l'écran Postes est le bon
+endroit — il vit dans la base, donc il survit à la régénération.
+
+Trois choses se passent à chaque enregistrement :
+
+1. **Un contrôle de forme** — en-têtes de section, lignes `option=valeur`, directives
+   connues. Une faute de frappe est refusée sans que rien n'atteigne le disque. Ce n'est
+   pas une validation Asterisk : il n'existe pas de mode « vérifier sans charger ».
+2. **L'archivage du contenu précédent**, consultable et restaurable en bas de l'écran.
+   Les vingt derniers états sont conservés par fichier.
+3. **Le rechargement du module concerné**, puis la lecture des lignes que Asterisk vient
+   d'écrire dans son journal. Si l'une d'elles se plaint de ce fichier, **la version
+   précédente est remise en place et rechargée** — l'installation ne reste pas dans un
+   état que personne n'a choisi. Le message d'Asterisk est affiché tel quel.
+
+`modules.conf` fait exception : aucun rechargement à chaud n'existe pour lui, il faut
+redémarrer Asterisk. L'écran le dit.
+
+> Le service doit pouvoir écrire dans `/etc/asterisk` — c'est le `ReadWritePaths` de
+> `telephonie-ui.service`. Réduire ce chemin à `/etc/asterisk/generated` désactive
+> proprement cet écran : l'écriture échoue avec un message explicite, et le reste de
+> l'interface continue de fonctionner.
+
 ### Journal d'appels
 
 Les 100 derniers enregistrements CDR, en lecture seule. Utile pour répondre à « est-ce que

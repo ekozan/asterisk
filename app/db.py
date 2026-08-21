@@ -27,6 +27,7 @@ def connect() -> sqlite3.Connection:
 _MIGRATIONS: list[tuple[str, str, str]] = [
     ("devices", "mac", "TEXT"),
     ("devices", "prov_profile", "TEXT"),
+    ("devices", "extra_config", "TEXT"),
 ]
 
 

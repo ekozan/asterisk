@@ -26,8 +26,16 @@ RestartSec=5
 # L'UI n'a besoin d'écrire qu'à trois endroits ; tout le reste du système lui
 # est présenté en lecture seule. Le troisième chemin sert à la régénération
 # des messages vocaux par Piper.
+#
+# /etc/asterisk en entier — et pas seulement generated/ — parce que l'écran
+# « Fichiers » édite les .conf écrits à la main. C'est un élargissement
+# volontaire : voir docs/06-securite.md, section « Édition des fichiers ».
+# Le retirer désactive proprement cet écran (l'écriture échoue avec un message
+# explicite) sans rien casser d'autre.
 ProtectSystem=strict
-ReadWritePaths=/var/lib/telephonie /etc/asterisk/generated /var/lib/asterisk/sounds/custom
+ReadWritePaths=/var/lib/telephonie /etc/asterisk /var/lib/asterisk/sounds/custom
+# Le journal d'Asterisk est lu après un rechargement pour rapporter ses
+# plaintes à l'écran d'édition. Lecture seule : ProtectSystem s'en charge.
 ProtectHome=yes
 PrivateTmp=yes
 NoNewPrivileges=yes

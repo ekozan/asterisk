@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% block title %}Fichiers de configuration — {{ settings.site_name }}{% endblock %}
+{% block content %}
+
+<h1>Fichiers de configuration</h1>
+<p class="hint">
+  Ces fichiers sont l'autre moitié de l'installation : les écrans « Postes », « Personnes »
+  et « Routes » produisent <code>generated/*.conf</code> depuis la base, ceux-ci s'écrivent
+  à la main. Ils servent à tout ce que les formulaires ne prévoient pas — un transport, un
+  gabarit d'endpoint, un contexte de dialplan sur mesure.
+</p>
+
+<div class="flash err">
+  <strong>Ce que vous écrivez ici est chargé par Asterisk sans autre contrôle.</strong>
+  Le dialplan sait exécuter des commandes système : une erreur y a la même portée qu'un
+  accès shell sur la VM. Le contenu précédent est archivé avant chaque écriture, et remis
+  en place automatiquement si Asterisk refuse la nouvelle version.
+</div>
+
+<section class="card">
+  <h2>Fichiers éditables</h2>
+  <table>
+    <thead>
+      <tr><th>Fichier</th><th>Rôle</th><th>Modifié le</th><th>Rechargement</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for file in files %}
+      <tr class="{{ 'muted' if not file.exists }}">
+        <td><code>{{ file.filename }}</code>
+          {% if not file.exists %}<br><span class="badge">absent</span>{% endif %}
+          {% if file.exists and not file.writable %}<br><span class="badge bad">lecture seule</span>{% endif %}
+        </td>
+        <td>{{ file.description }}</td>
+        <td>{{ file.mtime or "—" }}</td>
+        <td>
+          {% if file.reload_command %}
+            <code class="dim">{{ file.reload_command }}</code>
+          {% else %}
+            <span class="badge">redémarrage requis</span>
+          {% endif %}
+        </td>
+        <td class="row-actions">
+          <a class="button" href="/files?edit={{ file.key }}">Éditer</a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p class="hint">
+    Les fichiers de <code>generated/</code> ne figurent pas dans cette liste, et c'est
+    volontaire : les y éditer serait sans effet, le prochain
+    <a href="/apply">« Appliquer »</a> les réécrit. Pour un réglage propre à un poste,
+    utilisez le champ « Configuration PJSIP supplémentaire » de l'écran
+    <a href="/devices">Postes</a>.
+  </p>
+</section>
+
+{% if editing %}
+<section class="card">
+  <h2>{{ spec.filename }}</h2>
+  <p class="hint">{{ spec.description }}</p>
+
+  <form method="post" action="/files/{{ editing }}">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <textarea name="content" class="code" rows="30" spellcheck="false"
+              wrap="off">{{ content }}</textarea>
+    <div class="actions">
+      <button type="submit" class="primary">
+        Enregistrer{% if spec.reload_command %} et recharger{% endif %}
+      </button>
+      <a class="button" href="/files">Fermer</a>
+    </div>
+  </form>
+
+  {% if reload_log %}
+  <h3>Retour d'Asterisk</h3>
+  <pre class="diff">{{ reload_log }}</pre>
+  {% endif %}
+</section>
+
+<section class="card">
+  <h2>Versions précédentes</h2>
+  <p class="hint">Chaque enregistrement archive le contenu qui était en place juste avant.
+    Restaurer une ligne réécrit ce contenu-là et recharge Asterisk.</p>
+  <table>
+    <thead><tr><th>Remplacée le</th><th>Par</th><th>Taille</th><th></th></tr></thead>
+    <tbody>
+      {% for entry in history %}
+      <tr>
+        <td>{{ entry.created_at }}</td>
+        <td><code>{{ entry.author }}</code></td>
+        <td>{{ entry.taille }} o</td>
+        <td class="row-actions">
+          <form method="post" action="/files/restore/{{ entry.id }}" class="inline"
+                onsubmit="return confirm('Remettre cette version de {{ spec.filename }} ?')">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            <button type="submit">Restaurer</button>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="4" class="empty">
+        Ce fichier n'a jamais été modifié depuis l'interface.
+      </td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+
+{% endblock %}

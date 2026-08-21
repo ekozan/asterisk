@@ -95,6 +95,16 @@
              placeholder="TA200 port 1, prise murale salon">
     </label>
 
+    <label class="wide">Configuration PJSIP supplémentaire
+      <textarea name="extra_config" rows="4"
+                placeholder="rtp_timeout=60&#10;send_pai=yes">{{ editing.extra_config or '' if editing else '' }}</textarea>
+      <span class="hint">Recopiée telle quelle dans la section de cet endpoint, pour les
+        réglages que ce formulaire ne prévoit pas. Une ligne <code>option=valeur</code> par
+        ligne. Les en-têtes de section et les clés posées par le générateur
+        (<code>type</code>, <code>aors</code>, <code>auth</code>) sont refusés : les accepter
+        rendrait le poste injoignable sans message d'erreur.</span>
+    </label>
+
     {% if editing %}
     <label class="check">
       <input type="checkbox" name="enabled" value="1" {{ 'checked' if editing.enabled }}>

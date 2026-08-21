@@ -13,7 +13,8 @@ from fastapi import APIRouter, Depends, Form, Request
 
 from . import db, generator, provisioning, security
 from .webutil import (
-    clean, clean_or_none, current_session, form_int, get_conn, page, redirect, require_csrf,
+    clean, clean_block, clean_or_none, current_session, form_int, get_conn, page,
+    redirect, require_csrf,
 )
 
 router = APIRouter()
@@ -102,6 +103,7 @@ def device_create(
     notes: str = Form(""),
     mac: str = Form(""),
     prov_profile: str = Form(""),
+    extra_config: str = Form(""),
     conn: sqlite3.Connection = Depends(get_conn),
 ):
     session = current_session(request, conn)
@@ -126,8 +128,8 @@ def device_create(
     try:
         conn.execute(
             "INSERT INTO devices (slug, label, kind, extension, secret, codecs, max_contacts, "
-            "mailbox, dial_mode, hotline_target, ring_time, notes, mac, prov_profile) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "mailbox, dial_mode, hotline_target, ring_time, notes, mac, prov_profile, "
+            "extra_config) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (
                 slug_value, clean(label), kind, extension_value,
                 security.generate_secret(), clean(codecs) or "alaw,ulaw",
@@ -135,6 +137,7 @@ def device_create(
                 dial_mode if dial_mode in ("direct", "hotline") else "direct",
                 clean_or_none(hotline_target), form_int(ring_time, 30, 5, 120),
                 clean_or_none(notes), mac_value, _parse_profile(prov_profile, mac_value),
+                clean_block(extra_config),
             ),
         )
     except sqlite3.IntegrityError as exc:
@@ -163,6 +166,7 @@ def device_update(
     notes: str = Form(""),
     mac: str = Form(""),
     prov_profile: str = Form(""),
+    extra_config: str = Form(""),
     enabled: str = Form("0"),
     conn: sqlite3.Connection = Depends(get_conn),
 ):
@@ -177,7 +181,8 @@ def device_update(
         conn.execute(
             "UPDATE devices SET label=?, kind=?, extension=?, codecs=?, max_contacts=?, "
             "mailbox=?, dial_mode=?, hotline_target=?, ring_time=?, notes=?, mac=?, "
-            "prov_profile=?, enabled=?, updated_at=datetime('now') WHERE id=?",
+            "prov_profile=?, extra_config=?, enabled=?, updated_at=datetime('now') "
+            "WHERE id=?",
             (
                 clean(label), kind if kind in DEVICE_KINDS else "fxs",
                 clean_or_none(extension), clean(codecs) or "alaw,ulaw",
@@ -185,7 +190,7 @@ def device_update(
                 dial_mode if dial_mode in ("direct", "hotline") else "direct",
                 clean_or_none(hotline_target), form_int(ring_time, 30, 5, 120),
                 clean_or_none(notes), mac_value, _parse_profile(prov_profile, mac_value),
-                1 if enabled == "1" else 0, device_id,
+                clean_block(extra_config), 1 if enabled == "1" else 0, device_id,
             ),
         )
     except sqlite3.IntegrityError as exc:

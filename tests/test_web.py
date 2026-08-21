@@ -212,6 +212,7 @@ def _device_form(csrf, **overrides):
         "extension": "102", "codecs": "alaw,ulaw", "max_contacts": "1",
         "mailbox": "", "dial_mode": "direct", "hotline_target": "",
         "ring_time": "30", "notes": "", "mac": "", "prov_profile": "grandstream-ht80x",
+        "extra_config": "",
     }
     data.update(overrides)
     return data
@@ -302,3 +303,24 @@ def test_api_refuse_un_nom_de_son_invalide(client):
         json={"number": "0600000000", "sound": "../../etc/passwd"},
     )
     assert response.status_code == 422
+
+
+def test_configuration_libre_est_normalisee_a_l_enregistrement(client):
+    """Un `<textarea>` renvoie du CRLF. Recopié dans un .conf, le `\r` finit
+    dans la valeur lue par Asterisk sans rien laisser voir à la relecture."""
+    csrf = _csrf(client.get("/devices").text)
+    client.post(
+        "/devices",
+        data=_device_form(csrf, extra_config="\r\nrtp_timeout=60   \r\n\r\n"),
+        follow_redirects=False,
+    )
+    stocke = sample_row(client, "SELECT extra_config FROM devices WHERE slug = 'garage'")
+    assert stocke == "rtp_timeout=60"
+
+
+def test_configuration_libre_vide_est_stockee_a_null(client):
+    csrf = _csrf(client.get("/devices").text)
+    client.post("/devices", data=_device_form(csrf, extra_config="   \n\n"),
+                follow_redirects=False)
+    assert sample_row(client, "SELECT COUNT(*) FROM devices WHERE slug = 'garage' "
+                              "AND extra_config IS NULL") == 1

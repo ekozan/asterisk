@@ -46,6 +46,10 @@ TTS_ENABLED: bool = _env_bool("TELEPHONIE_TTS", True)
 # Fichier CDR au format CSV, lu en lecture seule pour l'écran "Journal d'appels".
 CDR_CSV: Path = _env_path("TELEPHONIE_CDR_CSV", "/var/log/asterisk/cdr-csv/Master.csv")
 
+# Journal d'Asterisk, lu autour d'un rechargement pour rapporter ses plaintes
+# à l'écran d'édition des fichiers. Lecture seule.
+ASTERISK_LOG: Path = _env_path("TELEPHONIE_ASTERISK_LOG", "/var/log/asterisk/messages")
+
 # Jeton d'API pour les intégrations machine (Home Assistant...). Vide = API désactivée.
 API_TOKEN: str = os.environ.get("TELEPHONIE_API_TOKEN", "")
 

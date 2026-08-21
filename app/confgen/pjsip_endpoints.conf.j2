@@ -27,6 +27,10 @@ allow={{ codec }}
 {% if d.mailbox %}
 mailboxes={{ d.mailbox }}@default
 {% endif %}
+{% if d.extra_config %}
+; Configuration libre saisie dans l'interface, recopiée telle quelle.
+{{ d.extra_config }}
+{% endif %}
 
 ; L'objet `aor` porte le même nom que l'endpoint, et ce n'est pas un raccourci :
 ; sur un REGISTER, Asterisk compare la partie utilisateur de l'en-tête `To:` au

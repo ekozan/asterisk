@@ -136,7 +136,7 @@ form.grid {
 }
 label { display: block; font-size: 0.9em; }
 label.wide, .actions.wide, fieldset.wide { grid-column: 1 / -1; }
-input, select {
+input, select, textarea {
   width: 100%;
   margin-top: 0.25rem;
   padding: 0.45rem 0.6rem;
@@ -246,4 +246,17 @@ pre {
   max-height: 28rem;
 }
 pre.diff { max-height: 34rem; }
+
+/* Éditeur de fichiers : police à chasse fixe, pas de retour à la ligne
+   automatique — une ligne de configuration coupée en deux se relit mal. */
+textarea { resize: vertical; }
+textarea.code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.82em;
+  line-height: 1.45;
+  white-space: pre;
+  overflow-wrap: normal;
+  overflow-x: auto;
+  tab-size: 4;
+}
 details summary { cursor: pointer; padding: 0.25rem 0; }

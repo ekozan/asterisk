@@ -33,6 +33,11 @@ CREATE TABLE IF NOT EXISTS devices (
     -- et profil d'appareil. NULL = l'appareil se configure à la main.
     mac            TEXT    UNIQUE,
     prov_profile   TEXT,
+    -- Lignes de configuration PJSIP recopiées telles quelles dans la section
+    -- d'endpoint générée, pour les réglages que ce schéma ne prévoit pas.
+    -- Validées avant application : pas d'en-tête de section, pas de clé déjà
+    -- posée par le gabarit.
+    extra_config   TEXT,
     enabled        INTEGER NOT NULL DEFAULT 1,
     created_at     TEXT    NOT NULL DEFAULT (datetime('now')),
     updated_at     TEXT    NOT NULL DEFAULT (datetime('now')),
@@ -139,6 +144,22 @@ CREATE TABLE IF NOT EXISTS revisions (
     applied     INTEGER NOT NULL DEFAULT 0,
     reload_log  TEXT
 );
+
+-- ---------------------------------------------------------------------------
+-- Historique des fichiers /etc/asterisk édités depuis l'interface.
+-- `content` est le contenu qui était en place AVANT l'écriture : restaurer une
+-- ligne, c'est remettre ce contenu-là.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS file_revisions (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    author     TEXT NOT NULL,
+    filename   TEXT NOT NULL,
+    content    TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_file_revisions_name
+    ON file_revisions (filename, id DESC);
 
 CREATE TABLE IF NOT EXISTS audit_log (
     id     INTEGER PRIMARY KEY AUTOINCREMENT,

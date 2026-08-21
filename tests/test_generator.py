@@ -257,3 +257,43 @@ def test_rollback_restaure_les_fichiers_precedents(sample):
 
     generator.rollback(sample, revision_id, "test")
     assert "[garage](" not in (generator.config.GENERATED_DIR / "pjsip_endpoints.conf").read_text()
+
+
+# --- Configuration libre par poste ------------------------------------------
+
+def test_configuration_libre_atterrit_dans_la_section_du_poste(sample):
+    sample.execute(
+        "UPDATE devices SET extra_config = ? WHERE slug = 'salon'",
+        ("rtp_timeout=60\nsend_pai=yes",),
+    )
+    conf = generator.build(sample)["pjsip_endpoints.conf"]
+
+    salon = conf.split("[salon](")[1].split("\n\n")[0]
+    assert "rtp_timeout=60" in salon
+    assert "send_pai=yes" in salon
+    # Et nulle part ailleurs : le bloc appartient à ce poste.
+    assert conf.count("rtp_timeout=60") == 1
+
+
+def test_configuration_libre_refuse_ce_qui_casserait_l_endpoint(sample):
+    cas = {
+        "[autre-chose]\ntype=endpoint": "en-tête de section",
+        "#exec /bin/sh -c whoami": "directives",
+        "aors=ailleurs": "aors",
+        "type=aor": "type",
+        "juste du texte": "option=valeur",
+    }
+    for texte, attendu in cas.items():
+        problemes = generator.check_extra_config(texte, "poste Salon")
+        erreurs = [p.message for p in problemes if p.level == "error"]
+        assert erreurs, f"{texte!r} aurait dû être refusé"
+        assert any(attendu in message for message in erreurs), erreurs
+
+
+def test_configuration_libre_previent_sans_bloquer_sur_un_champ_du_formulaire(sample):
+    problemes = generator.check_extra_config("context=autre", "poste Salon")
+    assert [p.level for p in problemes] == ["warning"]
+
+
+def test_configuration_libre_laisse_passer_commentaires_et_lignes_vides(sample):
+    assert generator.check_extra_config("; un commentaire\n\nrtp_timeout=60", "x") == []

@@ -46,7 +46,6 @@ _env = Environment(
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,31}$")
 EXTEN_RE = re.compile(r"^[0-9*#]{1,8}$")
 
-
 # --- Lecture de la base, mise en forme pour les gabarits ---------------------
 
 def _codec_list(raw: str) -> list[str]:
@@ -253,6 +252,56 @@ class Problem:
     message: str
 
 
+# --- Configuration libre par poste ------------------------------------------
+# Ces lignes sont recopiées telles quelles dans la section d'endpoint. Deux
+# familles de clés sont refusées, pour des raisons différentes.
+
+# Celles-ci décident de l'identité de l'objet. Les redéfinir ne provoque aucune
+# erreur au chargement : l'endpoint pointe simplement ailleurs, et le poste
+# devient injoignable sans que rien ne le signale.
+EXTRA_CONFIG_RESERVED = {"type", "aors", "auth", "outbound_auth"}
+
+# Celles-là sont déjà posées par le gabarit d'après les champs du formulaire.
+# Les redonner ici fonctionne, mais crée deux sources pour un même réglage :
+# on prévient sans bloquer.
+EXTRA_CONFIG_MANAGED = {"context", "callerid", "disallow", "allow", "mailboxes"}
+
+
+def check_extra_config(text: str | None, owner: str) -> list["Problem"]:
+    """Contrôle un bloc de configuration libre avant qu'il parte dans un .conf."""
+    problems: list[Problem] = []
+    for number, raw in enumerate((text or "").splitlines(), start=1):
+        line = raw.strip()
+        if not line or line.startswith(";"):
+            continue
+        where = f"{owner}, ligne {number}"
+
+        if line.startswith("["):
+            problems.append(Problem("error", f"{where} : un en-tête de section « {line} » "
+                                             "créerait un objet parallèle au poste."))
+            continue
+        # `#include` tirerait un fichier arbitraire, `#exec` exécuterait une
+        # commande au chargement de la configuration.
+        if line.startswith("#"):
+            problems.append(Problem("error", f"{where} : les directives « {line.split()[0]} » "
+                                             "ne sont pas autorisées ici."))
+            continue
+        if "=" not in line:
+            problems.append(Problem("error", f"{where} : « {line} » n\'est pas une ligne "
+                                             "« option=valeur »."))
+            continue
+
+        key = line.split("=", 1)[0].strip().lower()
+        if key in EXTRA_CONFIG_RESERVED:
+            problems.append(Problem("error", f"{where} : « {key} » est posé par le générateur. "
+                                             "Le redéfinir rendrait le poste injoignable."))
+        elif key in EXTRA_CONFIG_MANAGED:
+            problems.append(Problem("warning", f"{where} : « {key} » est déjà géré par le "
+                                               "formulaire du poste ; la valeur saisie ici "
+                                               "s\'y ajoute ou la remplace."))
+    return problems
+
+
 def validate(conn: sqlite3.Connection) -> list[Problem]:
     problems: list[Problem] = []
     settings = db.get_settings(conn)
@@ -266,6 +315,9 @@ def validate(conn: sqlite3.Connection) -> list[Problem]:
             problems.append(Problem("error", f"Identifiant de poste invalide : {device['slug']}"))
         if not device["codec_list"]:
             problems.append(Problem("error", f"Poste {device['label']} : aucun codec"))
+        problems.extend(
+            check_extra_config(device["extra_config"], f"poste {device['label']}")
+        )
 
     # Un même numéro ne peut pas être servi par deux entrées du dialplan :
     # Asterisk prendrait silencieusement la première, ce qui est très pénible

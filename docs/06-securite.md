@@ -88,17 +88,42 @@ L'unité `telephonie-ui.service` restreint le service au strict nécessaire :
 
 ```ini
 ProtectSystem=strict
-ReadWritePaths=/var/lib/telephonie /etc/asterisk/generated /var/lib/asterisk/sounds/custom
+ReadWritePaths=/var/lib/telephonie /etc/asterisk /var/lib/asterisk/sounds/custom
 ProtectHome=yes
 PrivateTmp=yes
 NoNewPrivileges=yes
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 ```
 
-Trois répertoires en écriture, le reste du système en lecture seule. Une compromission de
-l'interface ne donne pas la main sur `/etc/asterisk/pjsip.conf`, qui reste hors de portée.
+Trois répertoires en écriture, le reste du système en lecture seule. Asterisk tourne sous
+son propre utilisateur, jamais en `root`.
 
-Asterisk tourne sous son propre utilisateur, jamais en `root`.
+## Édition des fichiers depuis l'interface
+
+L'écran **Fichiers** écrit dans `/etc/asterisk`, et ça mérite d'être dit franchement :
+**c'est la porte la plus large de l'installation.**
+
+Le dialplan d'Asterisk sait exécuter des commandes système (`System()`, `AGI()`). Qui peut
+écrire `extensions.conf` peut donc exécuter du code sous l'identité `asterisk`. Une session
+d'interface détournée ne se limite plus à une mauvaise configuration téléphonique : elle
+vaut un accès shell sur la VM.
+
+C'est un élargissement **volontaire** de `ReadWritePaths`, pas un oubli. Il se défend
+parce que les autres barrières tiennent :
+
+- l'interface n'écoute que sur `127.0.0.1`, jamais sur le réseau ;
+- on ne l'atteint que par un tunnel SSH, donc après authentification SSH ;
+- il faut ensuite un compte administrateur de l'interface ;
+- chaque écriture est journalisée, et le contenu précédent archivé.
+
+Autrement dit, l'attaquant qui peut s'en servir a déjà franchi SSH. Mais si vous exposez
+un jour l'interface autrement — reverse proxy, VPN partagé, port ouvert —, cette porte
+devient le premier point à reconsidérer.
+
+**Pour la refermer**, retirez `/etc/asterisk` du `ReadWritePaths` de
+`telephonie-ui.service` et laissez `/etc/asterisk/generated`. L'écran reste visible mais
+toute écriture échoue avec un message explicite ; le reste de l'interface est intact, et
+les fichiers redeviennent modifiables en SSH uniquement.
 
 ## Segmentation réseau
 

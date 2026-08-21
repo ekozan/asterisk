@@ -18,6 +18,7 @@
     <a href="/trunks" class="{{ 'on' if request.url.path.startswith('/trunks') }}">Routes</a>
     <a href="/provisioning" class="{{ 'on' if request.url.path.startswith('/provisioning') }}">Provisionnement</a>
     <a href="/calls" class="{{ 'on' if request.url.path.startswith('/calls') }}">Journal</a>
+    <a href="/files" class="{{ 'on' if request.url.path.startswith('/files') }}">Fichiers</a>
     <a href="/settings" class="{{ 'on' if request.url.path.startswith('/settings') }}">Réglages</a>
   </nav>
   <form method="post" action="/logout" class="logout">

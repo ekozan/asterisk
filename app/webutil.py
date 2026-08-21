@@ -79,3 +79,19 @@ def clean_or_none(value: str | None) -> str | None:
     contrairement à une chaîne vide qui, elle, se dupliquerait)."""
     cleaned = clean(value)
     return cleaned or None
+
+
+def clean_block(value: str | None) -> str | None:
+    """Normalise un champ multiligne, ou None s'il ne reste rien.
+
+    Un `<textarea>` renvoie ses fins de ligne en CRLF (c'est la spécification
+    HTML). Recopiées telles quelles dans un `.conf`, les `\r` se retrouvent dans
+    la valeur lue par Asterisk et font échouer des comparaisons pour une raison
+    invisible à la lecture. On les retire ici, une bonne fois.
+    """
+    lines = [line.rstrip() for line in (value or "").replace("\r\n", "\n").split("\n")]
+    while lines and not lines[0]:
+        lines.pop(0)
+    while lines and not lines[-1]:
+        lines.pop()
+    return "\n".join(lines) or None

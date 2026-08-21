@@ -6,12 +6,13 @@ from __future__ import annotations
 import csv
 import sqlite3
 from io import StringIO
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Form, Request
 
 from fastapi.responses import PlainTextResponse
 
-from . import asterisk, config, db, generator, provisioning
+from . import asterisk, config, db, generator, provisioning, textfiles
 from .webutil import clean, current_session, get_conn, page, redirect, require_csrf
 
 router = APIRouter()
@@ -240,6 +241,66 @@ def provisioning_preview(
         provisioning.build_config(device, db.get_settings(conn)),
         media_type="text/xml",
     )
+
+
+# ============================================================================
+# Édition des fichiers de configuration écrits à la main
+# ============================================================================
+
+@router.get("/files")
+def files_page(request: Request, conn: sqlite3.Connection = Depends(get_conn)):
+    session = current_session(request, conn)
+    key = request.query_params.get("edit")
+    if key not in textfiles.EDITABLE:
+        key = None
+    return page(
+        request, conn, session, "files.html",
+        files=textfiles.describe_all(),
+        editing=key,
+        spec=textfiles.EDITABLE[key] if key else None,
+        content=textfiles.read(key) if key else "",
+        history=textfiles.history(conn, textfiles.EDITABLE[key].filename) if key else [],
+        reload_log=request.query_params.get("log", ""),
+    )
+
+
+@router.post("/files/{key}")
+async def files_save(key: str, request: Request):
+    # Asynchrone pour la même raison que /settings : le contenu d'un fichier
+    # arrive dans un champ de formulaire lu par `await request.form()`.
+    if key not in textfiles.EDITABLE:
+        return redirect("/files", err="Fichier inconnu.")
+
+    form = await request.form()
+    conn = db.connect()
+    try:
+        session = current_session(request, conn)
+        require_csrf(session, form.get("csrf"))
+        result = textfiles.save(conn, key, str(form.get("content", "")), session["username"])
+        conn.commit()
+    finally:
+        conn.close()
+
+    target = f"/files?edit={key}"
+    if result["log"]:
+        target += "&" + urlencode({"log": result["log"][:4000]})
+    if result["ok"]:
+        return redirect(target, ok=result["message"])
+    return redirect(target, err=result["message"])
+
+
+@router.post("/files/restore/{revision_id}")
+def files_restore(
+    revision_id: int, request: Request, csrf: str = Form(""),
+    conn: sqlite3.Connection = Depends(get_conn),
+):
+    session = current_session(request, conn)
+    require_csrf(session, csrf)
+    result = textfiles.restore(conn, revision_id, session["username"])
+    conn.commit()
+    if result["ok"]:
+        return redirect("/files", ok=result["message"])
+    return redirect("/files", err=result["message"])
 
 
 @router.get("/audit")

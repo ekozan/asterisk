@@ -17,6 +17,9 @@ jamais éditer un fichier `.conf` à la main.
   diff avant application, historique des configurations et retour arrière.
 - **Provisionnement des ATA Grandstream** : l'appareil récupère son compte SIP tout seul
   au démarrage, à partir de son adresse MAC — plus rien à recopier dans son interface web.
+- **Édition des fichiers à la main, depuis l'interface** : les `.conf` que les formulaires
+  ne couvrent pas s'éditent dans le navigateur, avec historique et retour arrière
+  automatique si Asterisk refuse la nouvelle version.
 
 ## Le principe à retenir
 
@@ -96,7 +99,7 @@ asterisk/         fichiers de configuration statiques, édités à la main
 docs/             documentation
 scripts/          bootstrap (install complète), install (UI seule), seed, TTS, sauvegarde
 systemd/          unité du service
-tests/            51 tests couvrant le générateur et l'interface
+tests/            118 tests couvrant le générateur, l'interface et l'éditeur
 ```
 
 ## Tests
