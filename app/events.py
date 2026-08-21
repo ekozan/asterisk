@@ -22,7 +22,9 @@ import os
 import socket
 import sqlite3
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import datetime
 
 from . import db
 
@@ -130,16 +132,71 @@ class Publication:
     retain: bool = False
 
 
+@dataclass(frozen=True)
+class Poste:
+    """Un endpoint de la base, tel qu'il compte pour ce service.
+
+    `trunk` sépare les postes de la maison des passerelles vers l'extérieur
+    (pont FXO, GSM). Sans cette distinction, un appel venu de la Freebox
+    arriverait par un canal connu de la base et passerait pour un appel interne.
+    """
+
+    label: str
+    trunk: bool
+
+
+def _horodatage() -> str:
+    """Instant local avec décalage, au format ISO 8601.
+
+    Estampillé à la réception de l'événement, pas par Asterisk : l'AMI ne
+    date ses messages que si `timestampevents` est activé, et le trajet par le
+    socket local se compte en fractions de milliseconde.
+    """
+    return datetime.now().astimezone().isoformat(timespec="seconds")
+
+
+def number_from_dialstring(dialstring: str) -> str:
+    """Extrait le numéro composé de la chaîne de `Dial()`.
+
+    Asterisk ne publie pas le numéro sortant dans un champ à lui : il faut le
+    tirer de `DialString`, dont la forme dépend de la technologie du trunk.
+
+        0102030405@grandstream-fxo   (PJSIP vers le pont FXO)  -> 0102030405
+        quectel0/+33102030405        (chan-quectel vers le GSM) -> +33102030405
+
+    Si vous ajoutez un trunk d'une autre technologie, vérifiez ce que produit
+    `python -m app.events --dump` avant de vous fier à ce qui remonte.
+    """
+    number = dialstring.split("@", 1)[0]
+    return number.rsplit("/", 1)[-1].strip()
+
+
+def _clean_identity(value: str) -> str:
+    """Asterisk écrit `<unknown>` pour un appelant masqué.
+
+    Le laisser passer ferait annoncer « appel de inférieur unknown supérieur »
+    par un satellite vocal ; une chaîne vide est plus facile à tester.
+    """
+    return "" if value in ("<unknown>", "unknown", "") else value
+
+
 @dataclass
 class Translator:
     """Convertit un événement AMI en publications MQTT.
 
-    `devices` associe l'identifiant SIP à son libellé lisible. Un événement qui
-    concerne un endpoint inconnu de la base est ignoré : c'est le cas des canaux
-    techniques, et publier une entité par canal noierait Home Assistant.
+    Un événement qui ne concerne aucun endpoint de la base est ignoré : les
+    canaux techniques sont nombreux, et publier une entité par canal noierait
+    Home Assistant.
     """
 
-    devices: dict[str, str] = field(default_factory=dict)
+    postes: dict[str, Poste] = field(default_factory=dict)
+    now: Callable[[], str] = _horodatage
+    #: Un appel sortant qui bascule d'un trunk à l'autre produit un second
+    #: `DialBegin` avec le même canal appelant. On ne l'annonce qu'une fois.
+    fenetre_doublon: float = 60.0
+    _vus: dict[tuple[str, str], float] = field(default_factory=dict, repr=False)
+
+    # --- aiguillage ---
 
     def translate(self, event: dict[str, str]) -> list[Publication]:
         name = event.get("event", "")
@@ -148,12 +205,18 @@ class Translator:
         if name == "ContactStatus":
             return self._contact_status(event)
         if name == "DialBegin":
-            return self._dial_begin(event)
+            return self._appel(event)
         return []
+
+    def _maison(self, slug: str | None) -> bool:
+        poste = self.postes.get(slug or "")
+        return poste is not None and not poste.trunk
+
+    # --- états ---
 
     def _device_state(self, event: dict[str, str]) -> list[Publication]:
         slug = _endpoint_of(event.get("device", ""))
-        if slug not in self.devices:
+        if slug not in self.postes:
             return []
         state = DEVICE_STATES.get(event.get("state", "").upper(), "inconnu")
         return [Publication(f"{PREFIX}/{slug}/etat", state, retain=True)]
@@ -162,41 +225,78 @@ class Translator:
         # `aor` porte le nom de l'AOR, qui est aussi celui de l'endpoint (voir
         # le générateur : c'est ce que le REGISTER exige).
         slug = event.get("aor") or event.get("endpointname", "")
-        if slug not in self.devices:
+        if slug not in self.postes:
             return []
         joignable = event.get("contactstatus", "") in REACHABLE
         return [Publication(
             f"{PREFIX}/{slug}/joignable", "ON" if joignable else "OFF", retain=True
         )]
 
-    def _dial_begin(self, event: dict[str, str]) -> list[Publication]:
-        """Un poste commence à sonner : c'est le signal que le satellite attend.
+    # --- appels ---
 
-        `DialBegin` porte le canal appelant et le canal appelé. On publie sur le
-        poste appelé, avec l'identité de l'appelant.
+    def _appel(self, event: dict[str, str]) -> list[Publication]:
+        """Un `Dial()` démarre : quelqu'un sonne quelque part.
+
+        Le sens se déduit des deux extrémités. C'est plus robuste que de
+        reconnaître les noms de canaux des trunks, qui changent avec la
+        technologie employée.
         """
-        slug = _endpoint_of(event.get("destchannel", ""))
-        if slug not in self.devices:
+        appelant = _endpoint_of(event.get("channel", ""))
+        appele = _endpoint_of(event.get("destchannel", ""))
+
+        if self._maison(appele) and not self._maison(appelant):
+            sens, slug = "entrant", appele
+            numero = _clean_identity(event.get("calleridnum", ""))
+            nom = _clean_identity(event.get("calleridname", ""))
+        elif self._maison(appelant) and not self._maison(appele):
+            sens, slug = "sortant", appelant
+            numero = number_from_dialstring(event.get("dialstring", ""))
+            nom = ""
+        elif self._maison(appelant) and self._maison(appele):
+            # Poste à poste : on annonce sur celui qui sonne, pas sur celui qui
+            # compose — c'est le téléphone dont on veut être prévenu.
+            sens, slug = "interne", appele
+            numero = _clean_identity(event.get("calleridnum", ""))
+            nom = _clean_identity(event.get("calleridname", ""))
+        else:
             return []
 
-        numero = event.get("calleridnum", "")
-        # Asterisk écrit `<unknown>` quand l'appelant est masqué ; le laisser
-        # passer tel quel afficherait « <unknown> » sur le satellite vocal.
-        if numero in ("<unknown>", "unknown"):
-            numero = ""
-        nom = event.get("calleridname", "")
-        if nom in ("<unknown>", "unknown"):
-            nom = ""
+        if self._deja_vu(event.get("uniqueid", ""), slug):
+            return []
 
         payload = json.dumps({
-            "event_type": "appel_entrant",
+            "event_type": sens,
             "numero": numero,
             "nom": nom,
-            "poste": self.devices[slug],
+            "poste": self.postes[slug].label,
+            "horodatage": self.now(),
         }, ensure_ascii=False)
-        # Sans `retain` : un événement rejoué au redémarrage du courtier
-        # ferait sonner une notification pour un appel terminé depuis longtemps.
+        # Sans `retain` : un événement rejoué au redémarrage du courtier ferait
+        # annoncer un appel terminé depuis longtemps.
         return [Publication(f"{PREFIX}/{slug}/appel", payload, retain=False)]
+
+    def _deja_vu(self, uniqueid: str, slug: str) -> bool:
+        """Vrai si ce même appel a déjà été annoncé pour ce poste.
+
+        La clé associe l'appel et le poste concerné, et ce couple fait
+        exactement ce qu'il faut dans les deux cas : le basculement d'un trunk
+        vers le suivant garde le même canal appelant, donc le même couple, et
+        n'est annoncé qu'une fois ; un groupe qui fait sonner trois postes
+        produit trois couples distincts, donc trois annonces — une par
+        téléphone qui sonne réellement.
+        """
+        if not uniqueid:
+            return False
+        maintenant = time.monotonic()
+        self._vus = {
+            cle: vu for cle, vu in self._vus.items()
+            if maintenant - vu < self.fenetre_doublon
+        }
+        cle = (uniqueid, slug)
+        if cle in self._vus:
+            return True
+        self._vus[cle] = maintenant
+        return False
 
 
 # --- Découverte Home Assistant ----------------------------------------------
@@ -211,14 +311,14 @@ def _device_block() -> dict:
     }
 
 
-def discovery(devices: dict[str, str]) -> list[Publication]:
+def discovery(postes: dict[str, Poste]) -> list[Publication]:
     """Configurations de découverte, une par entité, retenues par le courtier.
 
     Retenues parce que Home Assistant les relit à chaque redémarrage : sans
-    `retain`, les entités disparaîtraient jusqu'au prochain redémarrage d'ici.
+    `retain`, les entités disparaîtraient jusqu'au prochain lancement d'ici.
     """
     out: list[Publication] = []
-    for slug, label in sorted(devices.items()):
+    for slug, poste in sorted(postes.items()):
         common = {
             "device": _device_block(),
             "availability_topic": STATUS_TOPIC,
@@ -230,7 +330,7 @@ def discovery(devices: dict[str, str]) -> list[Publication]:
             f"{DISCOVERY_PREFIX}/binary_sensor/{PREFIX}/{slug}_joignable/config",
             json.dumps({
                 **common,
-                "name": f"{label} joignable",
+                "name": f"{poste.label} joignable",
                 "unique_id": f"{PREFIX}_{slug}_joignable",
                 "state_topic": f"{PREFIX}/{slug}/joignable",
                 "device_class": "connectivity",
@@ -242,7 +342,7 @@ def discovery(devices: dict[str, str]) -> list[Publication]:
             f"{DISCOVERY_PREFIX}/sensor/{PREFIX}/{slug}_etat/config",
             json.dumps({
                 **common,
-                "name": f"{label} état",
+                "name": f"{poste.label} état",
                 "unique_id": f"{PREFIX}_{slug}_etat",
                 "state_topic": f"{PREFIX}/{slug}/etat",
                 "icon": "mdi:phone",
@@ -250,26 +350,31 @@ def discovery(devices: dict[str, str]) -> list[Publication]:
             retain=True,
         ))
 
+        # Un trunk ne « reçoit » ni ne « passe » d'appel de son propre point de
+        # vue : il n'est jamais le poste d'un événement, donc pas d'entité.
+        if poste.trunk:
+            continue
+
         out.append(Publication(
             f"{DISCOVERY_PREFIX}/event/{PREFIX}/{slug}_appel/config",
             json.dumps({
                 **common,
-                "name": f"{label} appel entrant",
+                "name": f"{poste.label} appel",
                 "unique_id": f"{PREFIX}_{slug}_appel",
                 "state_topic": f"{PREFIX}/{slug}/appel",
-                "event_types": ["appel_entrant"],
-                "icon": "mdi:phone-incoming",
+                "event_types": ["entrant", "sortant", "interne"],
+                "icon": "mdi:phone-in-talk",
             }, ensure_ascii=False),
             retain=True,
         ))
     return out
 
 
-def load_device_labels(conn: sqlite3.Connection) -> dict[str, str]:
-    """{identifiant SIP: libellé} des postes actifs."""
+def load_postes(conn: sqlite3.Connection) -> dict[str, Poste]:
+    """Les endpoints actifs, avec ce qui distingue un poste d'une passerelle."""
     return {
-        row["slug"]: row["label"]
-        for row in conn.execute("SELECT slug, label FROM devices WHERE enabled = 1")
+        row["slug"]: Poste(label=row["label"], trunk=row["kind"] == "fxo")
+        for row in conn.execute("SELECT slug, label, kind FROM devices WHERE enabled = 1")
     }
 
 
@@ -352,6 +457,37 @@ def _mqtt_client():
     return client
 
 
+def _connexion_ami() -> AmiConnection:
+    return AmiConnection(AMI_HOST, AMI_PORT, AMI_USER, AMI_SECRET)
+
+
+def dump() -> None:
+    """Affiche les événements bruts au lieu de publier — `--dump`.
+
+    Les noms de champs de l'AMI varient d'une version d'Asterisk à l'autre, et
+    `DialString` dépend de la technologie du trunk. Plutôt que de faire
+    confiance à la documentation, on regarde ce que la machine émet vraiment :
+    passez un appel dans chaque sens et lisez.
+    """
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+    interessants = {"DialBegin", "DialEnd", "DeviceStateChange", "ContactStatus"}
+
+    ami = _connexion_ami()
+    ami.connect()
+    print("Passez un appel entrant puis un appel sortant. Ctrl-C pour arrêter.\n")
+    try:
+        for event in ami.events():
+            if event.get("event") in interessants:
+                print(f"--- {event['event']}")
+                for key, value in event.items():
+                    if key != "event":
+                        print(f"    {key:24} {value}")
+    except KeyboardInterrupt:
+        pass
+    finally:
+        ami.close()
+
+
 def run() -> None:
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s"
@@ -363,25 +499,28 @@ def run() -> None:
         )
 
     with db.connect() as conn:
-        devices = load_device_labels(conn)
-    log.info("%d postes suivis : %s", len(devices), ", ".join(sorted(devices)))
+        postes = load_postes(conn)
+    maison = sorted(s for s, p in postes.items() if not p.trunk)
+    log.info("%d postes suivis (%s) et %d passerelles",
+             len(maison), ", ".join(maison), len(postes) - len(maison))
 
     client = _mqtt_client()
     client.connect(MQTT_HOST, MQTT_PORT, keepalive=60)
     client.loop_start()
 
-    for publication in discovery(devices):
+    for publication in discovery(postes):
         client.publish(publication.topic, publication.payload, retain=publication.retain)
     client.publish(STATUS_TOPIC, "online", retain=True)
 
-    translator = Translator(devices)
+    translator = Translator(postes)
     backoff = 1
     try:
         while True:
-            ami = AmiConnection(AMI_HOST, AMI_PORT, AMI_USER, AMI_SECRET)
+            ami = _connexion_ami()
             try:
                 ami.connect()
                 backoff = 1
+                client.publish(STATUS_TOPIC, "online", retain=True)
                 for event in ami.events():
                     for publication in translator.translate(event):
                         client.publish(
@@ -404,4 +543,6 @@ def run() -> None:
 
 
 if __name__ == "__main__":
-    run()
+    import sys
+
+    dump() if "--dump" in sys.argv else run()

@@ -14,17 +14,18 @@ import pytest
 from app import events
 
 
+POSTES = {
+    "salon": events.Poste("Salon", trunk=False),
+    "etage": events.Poste("Étage", trunk=False),
+    # Le pont FXO est un endpoint de la base comme un autre, mais il regarde
+    # vers l'extérieur : c'est ce qui distingue un appel entrant d'un interne.
+    "grandstream-fxo": events.Poste("Pont Freebox", trunk=True),
+}
+
+
 @pytest.fixture()
 def translator():
-    return events.Translator({
-        "salon": "Salon",
-        "etage": "Étage",
-        "grandstream-fxo": "Pont Freebox",
-    })
-
-
-def _by_topic(publications):
-    return {p.topic: p for p in publications}
+    return events.Translator(POSTES, now=lambda: "2026-08-21T01:32:03+02:00")
 
 
 # --- Découpage du flux AMI --------------------------------------------------
@@ -77,7 +78,17 @@ def test_extraction_du_poste_depuis_le_canal(canal, attendu):
     assert events._endpoint_of(canal) == attendu
 
 
-# --- Traduction -------------------------------------------------------------
+@pytest.mark.parametrize("dialstring, attendu", [
+    ("0102030405@grandstream-fxo", "0102030405"),   # PJSIP vers le pont FXO
+    ("quectel0/+33102030405", "+33102030405"),      # chan-quectel vers le GSM
+    ("101", "101"),
+    ("", ""),
+])
+def test_numero_sortant_extrait_de_la_chaine_de_dial(dialstring, attendu):
+    assert events.number_from_dialstring(dialstring) == attendu
+
+
+# --- États ------------------------------------------------------------------
 
 def test_changement_d_etat_publie_un_libelle_lisible(translator):
     publications = translator.translate({
@@ -110,45 +121,175 @@ def test_enregistrement_publie_la_joignabilite(translator):
     assert reachable[0].topic == "telephonie/salon/joignable"
 
 
-def test_appel_entrant_porte_le_numero_de_l_appelant(translator):
+def test_l_etat_du_pont_fxo_est_suivi_comme_les_autres(translator):
+    """Savoir que la Freebox est injoignable vaut autant qu'un poste éteint."""
+    publications = translator.translate({
+        "event": "ContactStatus", "aor": "grandstream-fxo", "contactstatus": "Unreachable",
+    })
+    assert publications[0].topic == "telephonie/grandstream-fxo/joignable"
+
+
+# --- Appels -----------------------------------------------------------------
+
+def _charge(publications):
+    assert len(publications) == 1
+    return json.loads(publications[0].payload)
+
+
+def test_appel_entrant(translator):
+    """L'appel arrive par le pont FXO et fait sonner le salon."""
     publications = translator.translate({
         "event": "DialBegin",
         "channel": "PJSIP/grandstream-fxo-00000001",
         "destchannel": "PJSIP/salon-00000002",
         "calleridnum": "0102030405",
         "calleridname": "Mamie",
+        "uniqueid": "1787095923.1",
     })
-    assert len(publications) == 1
     assert publications[0].topic == "telephonie/salon/appel"
-
-    payload = json.loads(publications[0].payload)
-    assert payload == {
-        "event_type": "appel_entrant",
+    assert _charge(publications) == {
+        "event_type": "entrant",
         "numero": "0102030405",
         "nom": "Mamie",
         "poste": "Salon",
+        "horodatage": "2026-08-21T01:32:03+02:00",
     }
+
+
+def test_appel_sortant(translator):
+    """Le salon compose un numéro : le sens s'inverse, et le numéro appelé vient
+    de la chaîne de `Dial()` — Asterisk ne le publie pas ailleurs."""
+    publications = translator.translate({
+        "event": "DialBegin",
+        "channel": "PJSIP/salon-00000003",
+        "destchannel": "PJSIP/grandstream-fxo-00000004",
+        "dialstring": "0102030405@grandstream-fxo",
+        "calleridnum": "100",
+        "uniqueid": "1787095999.3",
+    })
+    assert publications[0].topic == "telephonie/salon/appel"
+    charge = _charge(publications)
+    assert charge["event_type"] == "sortant"
+    assert charge["numero"] == "0102030405"
+    assert charge["poste"] == "Salon"
+
+
+def test_appel_sortant_par_le_gsm(translator):
+    """Le trunk de secours n'est pas un endpoint de la base : c'est l'appelant
+    connu qui suffit à décider du sens."""
+    charge = _charge(translator.translate({
+        "event": "DialBegin",
+        "channel": "PJSIP/salon-00000003",
+        "destchannel": "Quectel/quectel0-00000005",
+        "dialstring": "quectel0/+33102030405",
+        "uniqueid": "1787096000.3",
+    }))
+    assert charge["event_type"] == "sortant"
+    assert charge["numero"] == "+33102030405"
+
+
+def test_appel_interne(translator):
+    """Poste à poste : annoncé sur celui qui sonne, pas sur celui qui compose."""
+    publications = translator.translate({
+        "event": "DialBegin",
+        "channel": "PJSIP/salon-00000006",
+        "destchannel": "PJSIP/etage-00000007",
+        "calleridnum": "100",
+        "calleridname": "Salon",
+        "uniqueid": "1787096100.6",
+    })
+    assert publications[0].topic == "telephonie/etage/appel"
+    charge = _charge(publications)
+    assert charge["event_type"] == "interne"
+    assert charge["poste"] == "Étage"
+    assert charge["numero"] == "100"
 
 
 def test_un_appel_entrant_n_est_jamais_retenu(translator):
     """Un événement retenu serait rejoué au redémarrage du courtier, et ferait
     annoncer par le satellite un appel terminé depuis longtemps."""
     publications = translator.translate({
-        "event": "DialBegin", "destchannel": "PJSIP/salon-00000002",
-        "calleridnum": "0102030405",
+        "event": "DialBegin", "channel": "PJSIP/grandstream-fxo-00000001",
+        "destchannel": "PJSIP/salon-00000002", "calleridnum": "0102030405",
     })
     assert not publications[0].retain
 
 
 def test_un_appelant_masque_ne_remonte_pas_le_mot_unknown(translator):
     """« <unknown> » lu à voix haute par un satellite vocal, c'est raté."""
-    publications = translator.translate({
-        "event": "DialBegin", "destchannel": "PJSIP/salon-00000002",
+    charge = _charge(translator.translate({
+        "event": "DialBegin", "channel": "PJSIP/grandstream-fxo-00000001",
+        "destchannel": "PJSIP/salon-00000002",
         "calleridnum": "<unknown>", "calleridname": "<unknown>",
-    })
-    payload = json.loads(publications[0].payload)
-    assert payload["numero"] == ""
-    assert payload["nom"] == ""
+    }))
+    assert charge["numero"] == ""
+    assert charge["nom"] == ""
+
+
+def test_l_horodatage_est_pose_a_la_reception(translator):
+    charge = _charge(translator.translate({
+        "event": "DialBegin", "channel": "PJSIP/grandstream-fxo-00000001",
+        "destchannel": "PJSIP/salon-00000002",
+    }))
+    assert charge["horodatage"] == "2026-08-21T01:32:03+02:00"
+
+
+def test_l_horodatage_reel_porte_un_fuseau():
+    """Sans décalage, Home Assistant interpréterait l'heure comme de l'UTC."""
+    from datetime import datetime
+    horodatage = events._horodatage()
+    assert datetime.fromisoformat(horodatage).tzinfo is not None
+
+
+# --- Doublons ---------------------------------------------------------------
+
+def test_un_sortant_qui_bascule_sur_le_trunk_de_secours_n_est_annonce_qu_une_fois(translator):
+    """Le failover relance un `Dial()` pour le même appel : deux DialBegin, un
+    seul appel réel. Le canal appelant, lui, ne change pas."""
+    premier = {
+        "event": "DialBegin", "channel": "PJSIP/salon-00000003",
+        "destchannel": "PJSIP/grandstream-fxo-00000004",
+        "dialstring": "0102030405@grandstream-fxo", "uniqueid": "1787095999.3",
+    }
+    second = dict(premier, destchannel="Quectel/quectel0-00000005",
+                  dialstring="quectel0/+33102030405")
+
+    assert len(translator.translate(premier)) == 1
+    assert translator.translate(second) == []
+
+
+def test_un_groupe_qui_fait_sonner_deux_postes_annonce_les_deux(translator):
+    """Même appel, mais deux téléphones sonnent vraiment : deux annonces."""
+    commun = {
+        "event": "DialBegin", "channel": "PJSIP/grandstream-fxo-00000001",
+        "calleridnum": "0102030405", "uniqueid": "1787095923.1",
+    }
+    vers_salon = translator.translate(dict(commun, destchannel="PJSIP/salon-00000002"))
+    vers_etage = translator.translate(dict(commun, destchannel="PJSIP/etage-00000003"))
+
+    assert vers_salon[0].topic == "telephonie/salon/appel"
+    assert vers_etage[0].topic == "telephonie/etage/appel"
+
+
+def test_le_meme_appel_reste_annoncable_apres_la_fenetre(translator):
+    """Sans purge, un rappel au même numéro plus tard serait avalé."""
+    translator.fenetre_doublon = 0
+    event = {
+        "event": "DialBegin", "channel": "PJSIP/grandstream-fxo-00000001",
+        "destchannel": "PJSIP/salon-00000002", "uniqueid": "1787095923.1",
+    }
+    assert len(translator.translate(event)) == 1
+    assert len(translator.translate(event)) == 1
+
+
+# --- Ce qui doit rester silencieux ------------------------------------------
+
+def test_un_appel_entre_deux_trunks_n_est_pas_annonce(translator):
+    """Ni l'un ni l'autre n'est un téléphone de la maison."""
+    assert translator.translate({
+        "event": "DialBegin", "channel": "PJSIP/grandstream-fxo-00000001",
+        "destchannel": "Quectel/quectel0-00000002",
+    }) == []
 
 
 def test_un_poste_inconnu_de_la_base_est_ignore(translator):
@@ -169,41 +310,60 @@ def test_les_evenements_sans_interet_sont_silencieux(translator):
 # --- Découverte -------------------------------------------------------------
 
 def test_la_decouverte_declare_trois_entites_par_poste():
-    publications = events.discovery({"salon": "Salon"})
-    topics = [p.topic for p in publications]
-    assert topics == [
+    publications = events.discovery({"salon": events.Poste("Salon", trunk=False)})
+    assert [p.topic for p in publications] == [
         "homeassistant/binary_sensor/telephonie/salon_joignable/config",
         "homeassistant/sensor/telephonie/salon_etat/config",
         "homeassistant/event/telephonie/salon_appel/config",
     ]
 
 
+def test_un_trunk_n_a_pas_d_entite_d_appel():
+    """Il n'est jamais le poste d'un événement : l'entité resterait vide."""
+    topics = [p.topic for p in events.discovery(
+        {"grandstream-fxo": events.Poste("Pont Freebox", trunk=True)}
+    )]
+    assert not any("event/" in t for t in topics)
+    assert any("binary_sensor/" in t for t in topics)
+
+
+def test_les_types_d_evenement_declares_couvrent_les_trois_sens():
+    config = json.loads(events.discovery(
+        {"salon": events.Poste("Salon", trunk=False)}
+    )[2].payload)
+    assert set(config["event_types"]) == {"entrant", "sortant", "interne"}
+
+
 def test_la_decouverte_est_retenue():
     """Home Assistant relit les configurations au démarrage : sans `retain`,
     les entités disparaîtraient jusqu'au prochain lancement du service."""
-    assert all(p.retain for p in events.discovery({"salon": "Salon"}))
+    assert all(p.retain for p in events.discovery(POSTES))
 
 
 def test_chaque_entite_a_un_identifiant_unique_et_stable():
-    publications = events.discovery({"salon": "Salon", "etage": "Étage"})
-    uniques = [json.loads(p.payload)["unique_id"] for p in publications]
+    uniques = [json.loads(p.payload)["unique_id"] for p in events.discovery(POSTES)]
     assert len(uniques) == len(set(uniques))
     assert "telephonie_salon_joignable" in uniques
 
 
-def test_les_sujets_d_etat_annonces_sont_ceux_reellement_publies():
+def test_les_sujets_annonces_sont_ceux_reellement_publies():
     """Une divergence entre les deux donnerait des entités éternellement vides,
     sans la moindre erreur nulle part."""
-    devices = {"salon": "Salon"}
-    annonces = {
-        json.loads(p.payload)["state_topic"] for p in events.discovery(devices)
-    }
-    translator = events.Translator(devices)
+    annonces = {json.loads(p.payload)["state_topic"] for p in events.discovery(POSTES)}
+
+    translator = events.Translator(POSTES)
     publies = set()
     for event in (
         {"event": "DeviceStateChange", "device": "PJSIP/salon", "state": "INUSE"},
+        {"event": "DeviceStateChange", "device": "PJSIP/etage", "state": "INUSE"},
+        {"event": "DeviceStateChange", "device": "PJSIP/grandstream-fxo", "state": "INUSE"},
         {"event": "ContactStatus", "aor": "salon", "contactstatus": "Reachable"},
-        {"event": "DialBegin", "destchannel": "PJSIP/salon-00000002"},
+        {"event": "ContactStatus", "aor": "etage", "contactstatus": "Reachable"},
+        {"event": "ContactStatus", "aor": "grandstream-fxo", "contactstatus": "Reachable"},
+        {"event": "DialBegin", "channel": "PJSIP/grandstream-fxo-00000001",
+         "destchannel": "PJSIP/salon-00000002", "uniqueid": "a"},
+        {"event": "DialBegin", "channel": "PJSIP/grandstream-fxo-00000001",
+         "destchannel": "PJSIP/etage-00000003", "uniqueid": "b"},
     ):
         publies.update(p.topic for p in translator.translate(event))
 
@@ -211,16 +371,21 @@ def test_les_sujets_d_etat_annonces_sont_ceux_reellement_publies():
 
 
 def test_toutes_les_entites_suivent_la_disponibilite_du_service():
-    for publication in events.discovery({"salon": "Salon"}):
-        payload = json.loads(publication.payload)
-        assert payload["availability_topic"] == events.STATUS_TOPIC
+    for publication in events.discovery(POSTES):
+        assert json.loads(publication.payload)["availability_topic"] == events.STATUS_TOPIC
+
+
+def test_le_pont_fxo_est_charge_comme_passerelle(sample):
+    postes = events.load_postes(sample)
+    assert postes["fxo"].trunk is True
+    assert postes["salon"].trunk is False
 
 
 def test_les_postes_desactives_ne_sont_pas_suivis(sample):
     sample.execute("UPDATE devices SET enabled = 0 WHERE slug = 'mobile'")
-    labels = events.load_device_labels(sample)
-    assert "mobile" not in labels
-    assert labels["salon"] == "Salon"
+    postes = events.load_postes(sample)
+    assert "mobile" not in postes
+    assert postes["salon"].label == "Salon"
 
 
 # --- Poignée de main AMI ----------------------------------------------------
