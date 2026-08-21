@@ -4,8 +4,8 @@
 
 L'interface n'écoute que sur `127.0.0.1:8080`. Elle ne s'atteint donc pas directement
 depuis le réseau, ce qui est délibéré : c'est le seul composant qui détient les mots de
-passe SIP en clair, et l'exposer sur un VLAN reviendrait à annuler le bénéfice d'avoir
-supprimé l'AMI.
+passe SIP en clair, et l'exposer sur un VLAN reviendrait à donner ces mots de passe à
+qui sait atteindre ce VLAN.
 
 ```bash
 ssh -L 8080:127.0.0.1:8080 vous@10.0.5.20

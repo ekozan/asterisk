@@ -8,7 +8,8 @@
 | RTP | `10000-10200/udp` | VLAN 90 uniquement | flux négocié, `strictrtp` |
 | Interface de gestion | `127.0.0.1:8080` | tunnel SSH seulement | compte + session |
 | SSH | `10.0.5.20:22` | VLAN 5 | clé uniquement |
-| AMI | — | — | **désactivé** |
+| AMI | `127.0.0.1:5038` | la VM elle-même | compte en **lecture seule**, ACL `127.0.0.1/32` |
+| Provisionnement | `127.0.0.1:8081` par défaut | VLAN 90 si ouvert | aucune — voir [10](10-provisionnement.md#sécurité) |
 
 **Rien n'est exposé sur le WAN.** Le seul composant en frontal public est Flexisip, conçu
 pour ça, qui relaie la signalisation de l'application mobile vers Asterisk en interne.

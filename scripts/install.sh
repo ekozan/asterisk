@@ -90,10 +90,58 @@ if [[ $WITH_CONF -eq 1 ]]; then
   echo "    Ancienne configuration conservée dans $BACKUP"
 fi
 
+echo "==> Compte AMI du pont Home Assistant"
+# Le secret n'est pas dans le dépôt : versionné, il serait le même partout. Il
+# est tiré une fois et jamais renouvelé automatiquement — le régénérer à chaque
+# installation couperait le pont sans que rien ne le dise.
+AMI_ACCOUNT=$ASTERISK_ETC/manager.d/telephonie-events.conf
+if [[ -f "$AMI_ACCOUNT" ]]; then
+  echo "    $AMI_ACCOUNT existe déjà, secret conservé"
+else
+  install -d -o asterisk -g asterisk -m 0750 "$ASTERISK_ETC/manager.d"
+  AMI_SECRET=$(head -c 24 /dev/urandom | base64 | tr -d '/+=' | head -c 32)
+  umask 027
+  cat > "$AMI_ACCOUNT" <<EOF
+; Compte AMI du service telephonie-events. Écrit par scripts/install.sh.
+; Lecture seule et limité à la boucle locale : ce compte ne peut pas originer
+; d'appel ni recharger la configuration.
+[telephonie-events]
+secret = $AMI_SECRET
+deny = 0.0.0.0/0
+permit = 127.0.0.1/32
+read = system,call,dialplan
+write =
+EOF
+  chown asterisk:asterisk "$AMI_ACCOUNT"
+  chmod 0640 "$AMI_ACCOUNT"
+  echo "    compte créé dans $AMI_ACCOUNT"
+fi
+
 echo "==> Services systemd"
 install -m 0644 "$REPO/systemd/telephonie-ui.service" /etc/systemd/system/
 install -m 0644 "$REPO/systemd/telephonie-prov.service" /etc/systemd/system/
+install -m 0644 "$REPO/systemd/telephonie-events.service" /etc/systemd/system/
 install -d -m 0755 /etc/telephonie
+
+# Gabarit d'environnement du pont, créé vide de courtier : sans
+# TELEPHONIE_MQTT_HOST, le service refuse de démarrer plutôt que de tourner à
+# vide. C'est à l'exploitant de renseigner son courtier.
+if [[ ! -f /etc/telephonie/events.env ]]; then
+  {
+    echo "# Pont vers Home Assistant. Renseignez le courtier MQTT puis :"
+    echo "#   sudo systemctl enable --now telephonie-events"
+    echo "# Voir docs/11-home-assistant.md"
+    echo "TELEPHONIE_MQTT_HOST="
+    echo "TELEPHONIE_MQTT_PORT=1883"
+    echo "TELEPHONIE_MQTT_USER="
+    echo "TELEPHONIE_MQTT_PASSWORD="
+    echo "TELEPHONIE_AMI_USER=telephonie-events"
+    echo "TELEPHONIE_AMI_SECRET=$(sed -n 's/^secret = //p' "$AMI_ACCOUNT")"
+  } > /etc/telephonie/events.env
+  chown root:asterisk /etc/telephonie/events.env
+  chmod 0640 /etc/telephonie/events.env
+fi
+
 systemctl daemon-reload
 systemctl enable --now telephonie-ui.service
 # Le service de provisionnement écoute sur la boucle locale tant que
@@ -108,6 +156,8 @@ echo "  Tunnel   : ssh -L 8080:127.0.0.1:8080 <vous>@<vm>"
 echo "  Données  : $DATA/telephonie.db"
 echo "  Provis.  : écoute sur 127.0.0.1:8081 — pour l'ouvrir au VLAN voix, voir"
 echo "             docs/10-provisionnement.md"
+echo "  Home Ass.: renseignez le courtier MQTT dans /etc/telephonie/events.env,"
+echo "             puis: sudo systemctl enable --now telephonie-events"
 echo
 echo "Pour partir de l'installation de référence plutôt que d'une base vide :"
 echo "  sudo -u asterisk $PREFIX/venv/bin/python $PREFIX/scripts/seed.py"

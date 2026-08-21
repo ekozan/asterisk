@@ -13,7 +13,7 @@ regarde avant de modifier quoi que ce soit.
 ├── logger.conf             ← STATIQUE
 ├── rtp.conf                ← STATIQUE
 ├── cdr.conf                ← STATIQUE
-├── manager.conf            ← STATIQUE   AMI désactivé
+├── manager.conf            ← STATIQUE   AMI local, lecture seule
 ├── quectel.conf            ← STATIQUE   module GSM
 └── generated/
     ├── pjsip_endpoints.conf        ← GÉNÉRÉ  un bloc par poste
@@ -239,10 +239,22 @@ source négociée.
 
 ## `manager.conf`
 
-L'AMI est **désactivé**. L'interface pilote Asterisk par `asterisk -rx`, en passant par le
-socket de contrôle local — accessible parce que le service tourne sous l'utilisateur
-`asterisk`. Il n'y a donc ni port TCP supplémentaire en écoute, ni mot de passe AMI à
-stocker, faire tourner et protéger, pour exactement les mêmes actions.
+**L'interface ne s'en sert pas.** Elle pilote Asterisk par `asterisk -rx`, en passant par
+le socket de contrôle local — accessible parce que le service tourne sous l'utilisateur
+`asterisk`. Ni mot de passe, ni ACL à maintenir pour ça.
 
-Si un outil tiers en exige un plus tard, le fichier documente la configuration minimale
-acceptable.
+L'AMI est activé pour un seul usage : `telephonie-events`, qui a besoin du **flux
+d'événements en temps réel** que la CLI ne sait pas donner — savoir qu'un poste sonne à la
+seconde près, pour prévenir Home Assistant. Voir [11 — Home Assistant](11-home-assistant.md).
+
+Trois barrières l'encadrent :
+
+- `bindaddr = 127.0.0.1` : rien venu du réseau n'arrive jusqu'au port 5038 ;
+- `deny = 0.0.0.0/0` puis `permit = 127.0.0.1/32` : même si `bindaddr` changeait par
+  accident, seule la machine elle-même serait acceptée ;
+- le compte est en **lecture seule** (`write =` vide), donc incapable d'originer un appel
+  ou de recharger la configuration. Ce qui observe ne peut pas agir.
+
+Le compte lui-même n'est pas dans ce fichier ni dans le dépôt : `scripts/install.sh` écrit
+`manager.d/telephonie-events.conf` avec un secret tiré au hasard, inclus par la dernière
+ligne de `manager.conf`. Un secret versionné serait le même sur toutes les installations.

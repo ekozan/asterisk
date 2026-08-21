@@ -20,6 +20,9 @@ jamais éditer un fichier `.conf` à la main.
 - **Édition des fichiers à la main, depuis l'interface** : les `.conf` que les formulaires
   ne couvrent pas s'éditent dans le navigateur, avec historique et retour arrière
   automatique si Asterisk refuse la nouvelle version.
+- **Remontée vers Home Assistant** : état de chaque ligne et événement d'appel entrant
+  publiés sur MQTT, hors du chemin de l'appel — de quoi faire annoncer l'appelant par un
+  satellite vocal.
 
 ## Le principe à retenir
 
@@ -88,6 +91,7 @@ ssh -L 8080:127.0.0.1:8080 vous@la-vm
 | [08 — Matériel](docs/08-materiel.md) | Réglages des ATA, du DECT, du module GSM |
 | [09 — Choix techniques](docs/09-choix-techniques.md) | Décisions prises, et ce qu'elles écartent |
 | [10 — Provisionnement](docs/10-provisionnement.md) | Configuration automatique des ATA Grandstream |
+| [11 — Home Assistant](docs/11-home-assistant.md) | État des lignes et notification d'appel par MQTT |
 
 ## Arborescence
 
@@ -98,8 +102,8 @@ app/              interface web (FastAPI) et générateur de configuration
 asterisk/         fichiers de configuration statiques, édités à la main
 docs/             documentation
 scripts/          bootstrap (install complète), install (UI seule), seed, TTS, sauvegarde
-systemd/          unité du service
-tests/            118 tests couvrant le générateur, l'interface et l'éditeur
+systemd/          unités des trois services (interface, provisionnement, événements)
+tests/            146 tests couvrant le générateur, l'interface, l'éditeur et le pont
 ```
 
 ## Tests

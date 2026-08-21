@@ -39,26 +39,30 @@ an, c'est un non-sujet — et le temps de relecture du diff est du temps bien em
 
 ---
 
-## 2. `asterisk -rx` plutôt que l'AMI
+## 2. `asterisk -rx` pour piloter, l'AMI seulement pour observer
 
-**Décision.** L'interface pilote Asterisk par le socket de contrôle local. `manager.conf`
-désactive l'AMI.
+**Décision.** L'interface pilote Asterisk par le socket de contrôle local. L'AMI n'est
+utilisé que par le pont vers Home Assistant, avec un compte en lecture seule.
 
-**Pourquoi.** Le service tourne déjà sous l'utilisateur `asterisk` : il a accès au socket
-sans identifiant supplémentaire. L'AMI apporterait, pour exactement les mêmes actions
-(recharger, lister les endpoints, lancer un appel) :
+**Pourquoi.** Le service d'interface tourne déjà sous l'utilisateur `asterisk` : il a accès
+au socket sans identifiant supplémentaire. Pour ses actions — recharger, lister les
+endpoints, lancer un appel —, l'AMI n'apporterait qu'un mot de passe de plus à générer,
+stocker et protéger, et une ACL de plus à maintenir cohérente.
 
-- un port TCP de plus en écoute,
-- un mot de passe de plus à générer, stocker, protéger et faire tourner,
-- une section de `manager.conf` de plus à maintenir cohérente avec des ACL.
+**Ce que la CLI ne sait pas donner**, en revanche, ce sont les **événements en temps réel**.
+Savoir qu'un poste sonne à la seconde près, pour qu'un satellite vocal annonce l'appelant,
+demande un flux poussé : `asterisk -rx` interrogé en boucle lancerait un processus par
+sondage et arriverait trop tard de toute façon.
 
-**Ce qu'on perd** : les événements en temps réel. L'AMI diffuse un flux d'événements
-(décroché, raccroché, changement d'état) qu'une CLI ne sait pas donner. Un tableau de bord
-temps réel en aurait besoin. Ici, l'état est rafraîchi au chargement de la page, ce qui
-suffit largement.
+C'est ce qui a fait revenir l'AMI dans l'installation, mais **strictement pour observer** :
+`bindaddr = 127.0.0.1`, ACL `permit = 127.0.0.1/32`, et un compte sans aucun droit
+d'écriture — donc incapable d'originer un appel ou de recharger quoi que ce soit. La
+partie qui agit (l'interface) et la partie qui observe (le pont) n'ont ni le même chemin
+ni les mêmes droits.
 
-Le fichier `manager.conf` documente la configuration minimale acceptable si un outil tiers
-en exige un plus tard.
+**Ce qu'on écarte** : faire piloter Asterisk par Home Assistant via l'AMI. L'API JSON de
+l'interface (`/api/call`, `/api/notify`) existe pour ça, avec son propre jeton et sa propre
+validation des numéros. Un seul chemin d'écriture, contrôlé au même endroit.
 
 ---
 
@@ -216,7 +220,7 @@ demande une validation de deux minutes sur un appareil.
 | Sujet | Version initiale | Ici | Motif |
 |---|---|---|---|
 | Menu « personne » | Script AGI appelant l'API | Dialplan généré | Supprime l'API du chemin de l'appel |
-| AMI | Activé sur `127.0.0.1`, compte `api-user` | Désactivé | `asterisk -rx` suffit, un secret de moins |
+| AMI | Activé sur `127.0.0.1`, compte en écriture | Activé, compte en **lecture seule** | `asterisk -rx` suffit pour agir ; l'AMI n'apporte que les événements |
 | Port de l'interface | 8000 | 8080 | Évite la collision avec d'autres services courants |
 | `allowguest` / `alwaysauthreject` | Repris dans `pjsip.conf` | Retirés | Options `chan_sip`, sans effet en PJSIP — voir [06 — Sécurité](06-securite.md) |
 | Numéros d'urgence | Non traités | Générés et protégés | Collision possible avec le plan `1xx` |

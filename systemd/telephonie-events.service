@@ -1,0 +1,44 @@
+[Unit]
+Description=Pont des événements téléphoniques vers Home Assistant (MQTT)
+Documentation=file:///opt/telephonie/docs/11-home-assistant.md
+After=network.target asterisk.service
+# Wants et non Requires : ce service ne doit jamais empêcher Asterisk de
+# démarrer, ni retarder quoi que ce soit. S'il ne trouve pas l'AMI, il retente
+# indéfiniment avec un délai croissant.
+Wants=asterisk.service
+
+[Service]
+Type=simple
+User=asterisk
+Group=asterisk
+WorkingDirectory=/opt/telephonie
+Environment=TELEPHONIE_DATA_DIR=/var/lib/telephonie
+# Sans /etc/telephonie/events.env, TELEPHONIE_MQTT_HOST est vide et le service
+# s'arrête tout de suite avec un message explicite : rien ne tourne à vide.
+EnvironmentFile=-/etc/telephonie/events.env
+ExecStart=/opt/telephonie/venv/bin/python -m app.events
+Restart=on-failure
+RestartSec=10
+
+# --- Durcissement ---------------------------------------------------------
+# Ce service ne lit que la base (pour connaître les postes) et ne parle qu'à
+# deux interlocuteurs : l'AMI en local, le courtier MQTT.
+#
+# /var/lib/telephonie est en écriture bien qu'on ne fasse que lire : la base est
+# en mode WAL, et SQLite y écrit ses fichiers annexes (-wal, -shm) dès
+# l'ouverture, même pour une lecture. Sans ce chemin, la connexion échoue.
+ProtectSystem=strict
+ReadWritePaths=/var/lib/telephonie
+ProtectHome=yes
+PrivateTmp=yes
+NoNewPrivileges=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

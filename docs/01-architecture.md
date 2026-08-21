@@ -89,8 +89,13 @@ trunk 802.1Q), la virtualisation (la VM et tout ce qui y tourne), puis les péri
 Le point important est **en gris, dans la VM** : l'interface de gestion, la base et Piper
 sont colocalisés avec Asterisk et ne communiquent que par la boucle locale et par le
 système de fichiers. L'interface écrit dans `/etc/asterisk/generated/`, puis demande à
-Asterisk de relire ses fichiers. Aucun port supplémentaire n'est ouvert, aucun identifiant
-AMI n'existe, et — surtout — **aucun appel ne traverse l'interface**.
+Asterisk de relire ses fichiers. Aucun port supplémentaire n'est ouvert sur le réseau, et
+— surtout — **aucun appel ne traverse l'interface**.
+
+Un seul composant s'écarte de ce schéma : `telephonie-events`, qui lit le flux d'événements
+d'Asterisk par l'AMI (`127.0.0.1:5038`, compte en lecture seule) pour le republier vers
+Home Assistant. Il observe et ne décide de rien : arrêté, les appels se déroulent
+exactement pareil.
 
 ## Chaîne de traitement d'un appel
 
