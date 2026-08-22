@@ -67,8 +67,12 @@ sudo fwconsole reload
 sudo asterisk -rx "manager show users"     # doit lister homeassistant
 ```
 
-Remplacez `10.0.5.10` par l'adresse réelle de votre Home Assistant, et générez le secret
-plutôt que de l'inventer :
+`10.0.5.10` est un **exemple** : remplacez-le par l'adresse réelle de votre Home
+Assistant. Toutes les adresses de cette documentation viennent du plan de référence
+(`10.0.5.0/24` pour l'administration, `10.0.90.0/24` pour la voix) et ne correspondent
+pas forcément à votre réseau.
+
+Générez le secret plutôt que de l'inventer :
 
 ```bash
 head -c 24 /dev/urandom | base64 | tr -d '/+=' | head -c 32
@@ -100,18 +104,43 @@ n'importe quelle documentation :
 sudo asterisk -rx "manager show command PJSIPShowEndpoints"
 ```
 
-### Ouvrir le port
+### Ouvrir le port — et surtout, où le fermer
 
-FreePBX gère son propre pare-feu. Passez par lui plutôt que par `ufw`, sinon vous aurez
-deux jeux de règles qui se contredisent :
+> **Ne restreignez pas l'écoute d'Asterisk à l'adresse du VLAN.** C'est le réflexe naturel
+> — « qu'il n'écoute que là où Home Assistant se trouve » — et il casse FreePBX.
+>
+> FreePBX parle à son propre Asterisk **par l'AMI, sur `127.0.0.1`**. Or `bindaddr`
+> n'accepte qu'une seule adresse : le passer à celle du VLAN coupe FreePBX de son moteur,
+> et l'interface d'administration cesse de fonctionner. Laissez `0.0.0.0`, et faites le
+> filtrage ailleurs.
 
-*Connectivity → Firewall → Services*, autoriser **AMI** pour le seul réseau contenant
-Home Assistant. Si l'adresse est isolée, déclarez-la en *Trusted* dans *Networks*.
+Trois barrières, chacune à sa place :
 
-Vérifiez ensuite ce qui écoute réellement :
+| Barrière | Où | Valeur |
+|---|---|---|
+| Écoute | `manager.conf` | `0.0.0.0` — `127.0.0.1` doit rester joignable pour FreePBX |
+| Filtrage réseau | pare-feu FreePBX | 5038 depuis la seule adresse de Home Assistant |
+| ACL Asterisk | `manager_custom.conf` | `deny = 0.0.0.0/0`, puis `permit = <ip>/32` |
+
+Pour le pare-feu, passez par le module de FreePBX plutôt que par `ufw` : il gère
+lui-même les règles de la machine, et deux sources de vérité finiraient par se
+contredire. *Connectivity → Firewall → Services*, autoriser **AMI** pour la seule adresse
+de Home Assistant, déclarée en *Trusted* dans *Networks*.
+
+**Le masque compte.** `permit = 10.0.5.0/24` laisserait tout appareil de ce réseau tenter
+de s'authentifier — vos ATA compris, dont le firmware ne vous appartient pas. Un `/32` sur
+l'adresse exacte de Home Assistant, rien d'autre.
+
+**Et regardez où se trouve Home Assistant.** S'il est sur le VLAN voix, l'AMI devient
+atteignable par tous les ATA de ce VLAN. L'ACL tient, mais un VLAN voix devrait ne
+contenir que des téléphones : si vous avez un VLAN d'administration, c'est là que Home
+Assistant et l'AMI sont à leur place.
+
+Vérifiez ensuite ce qui écoute réellement, et que la boucle locale y est bien :
 
 ```bash
 sudo ss -lntp | grep 5038
+sudo asterisk -rx "manager show connected"   # FreePBX doit y figurer, depuis 127.0.0.1
 ```
 
 ---
