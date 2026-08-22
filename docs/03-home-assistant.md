@@ -317,7 +317,7 @@ automation:
           contact: mamie
 ```
 
-### Et pour la composition à la voix
+### Depuis un satellite vocal
 
 Le même script est la brique d'arrivée : une phrase personnalisée d'Assist (« appelle
 {contact} ») remplace le déclencheur horaire. Whisper tourne déjà dans Home Assistant via
@@ -328,6 +328,91 @@ liste fermée ci-dessus ; « appelle le zéro six… » dépend d'une transcript
 tromper d'un chiffre — et un chiffre de travers peut donner un numéro surtaxé. La liste
 fermée supprime toute cette classe de risque, et c'est la raison principale de sa
 présence.
+
+---
+
+## Décrocher et dicter : Assist au bout du fil
+
+Le montage précédent part d'un satellite vocal. Celui-ci part du **combiné** : on décroche,
+on compose un numéro interne, Assist répond, on dit un nom, et l'appel est transféré.
+
+C'est le seul montage qui rende un poste sans DTMF utilisable pour autre chose que
+composer un numéro — voir
+[02 — le téléphone à cadran](02-freepbx-configuration.md#le-téléphone-à-cadran).
+
+### Le principe
+
+L'add-on [**ha-sip**](https://github.com/arnonym/ha-plugins) s'enregistre sur FreePBX comme
+un poste ordinaire, décroche, et branche l'audio sur le pipeline Assist — donc sur Whisper.
+
+```
+Poste 100 ──compose 199──▶ ha-sip (poste SIP) ──audio──▶ Assist / Whisper
+                                    │
+                                    └──transfer──▶ sip:mamie@pbx ──▶ Mamie
+```
+
+> **Aucune action AMI là-dedans.** Le transfert est fait par ha-sip, en SIP. Le compte AMI
+> n'a donc besoin d'aucune classe supplémentaire — ni `originate`, ni `call`. C'est la
+> raison de préférer ce montage à un `Redirect` par l'AMI : celui-ci exigerait de retrouver
+> le nom exact du canal de l'appelant, qui change à chaque appel, et d'élargir les droits
+> du compte.
+
+### D'où Assist sait quel poste appelle
+
+C'est l'add-on qui le lui dit. L'événement `incoming_call` porte :
+
+| Champ | Contenu |
+|---|---|
+| `parsed_remote_uri` | le numéro de l'appelant — `100` pour le salon |
+| `remote_uri` | l'URI SIP complète |
+| `internal_id` | l'identifiant de l'appel, à réutiliser dans les commandes |
+
+Vous y accédez par `{{ trigger.json.parsed_remote_uri }}`. Ça sert à trois choses :
+
+- **personnaliser** l'accueil (« Bonjour, poste du salon ») ;
+- **restreindre** l'usage à certains postes — un poste d'invité n'a pas à composer par la
+  voix ;
+- **varier la liste de contacts** selon le poste, si vous le souhaitez.
+
+### La destination du transfert
+
+`transfer` attend une URI SIP. Pour que FreePBX sache la router, la destination doit
+exister dans le contexte du poste ha-sip — donc, en pratique, dans `from-internal-custom`,
+que FreePBX inclut dans `from-internal` :
+
+```ini
+; /etc/asterisk/extensions_custom.conf
+;
+; Destinations en toutes lettres : aucun clavier téléphonique ne peut les
+; composer, elles ne sont donc joignables que par un transfert de ha-sip.
+[from-internal-custom]
+exten => mamie,1,NoOp(Transfert vocal vers Mamie)
+ same => n,Dial(Local/0102030405@from-internal,30)
+ same => n,Hangup()
+```
+
+La liste reste fermée, pour la même raison que plus haut : la reconnaissance vocale ne peut
+désigner qu'une entrée déclarée.
+
+### Ce qu'il reste à éprouver
+
+L'architecture ci-dessus s'appuie sur des éléments vérifiés dans la documentation de
+l'add-on — les noms d'événements, les champs de charge utile et l'existence de la commande
+`transfer`. Deux points demanderont de la mise au point sur votre matériel :
+
+- **la forme exacte des paramètres de `transfer`** (`number` désigne l'appel actif,
+  `transfer_to` la destination) : à confirmer contre la version que vous installez ;
+- **la qualité de la transcription**. L'audio d'un appel est du 8 kHz en A-law, très en
+  dessous d'un micro de satellite. Sur des prénoms dictés dans un combiné à cadran,
+  attendez-vous à des erreurs — prévoyez une confirmation parlée (« j'appelle Mamie, c'est
+  bien ça ? ») avant de transférer.
+
+### Ce que ça ajoute comme dépendance
+
+Ce numéro interne ne fonctionne que si Home Assistant et l'add-on tournent. Ce n'est pas
+gênant tant que **la composition normale reste possible** : les chiffres et les numéros
+abrégés ne passent pas par là. Considérez ce montage comme un confort supplémentaire, pas
+comme le chemin d'appel principal — et surtout pas comme le chemin des urgences.
 
 ---
 
