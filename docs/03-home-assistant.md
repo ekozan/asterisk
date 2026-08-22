@@ -200,6 +200,137 @@ l'attribut `caller_id` sera plus utile que l'état lui-même.
 
 ---
 
+## Déclencher un appel depuis Home Assistant
+
+« Fais sonner le poste de l'étage, et quand quelqu'un décroche, appelle Mamie. » C'est
+l'action AMI `Originate`, et elle demande deux choses : élargir le compte, et **encadrer ce
+qu'il peut composer**.
+
+### Comment ça se déroule, côté combiné
+
+`Originate` sonne d'abord le **poste**. Quand la personne décroche, Asterisk exécute une
+extension du dialplan, qui compose alors le contact. La personne entend donc son propre
+téléphone sonner, décroche, puis entend la tonalité d'appel du correspondant. C'est
+déroutant la première fois, mais c'est le fonctionnement normal.
+
+### La liste fermée des destinations
+
+**C'est la pièce importante.** Plutôt que de laisser Home Assistant composer un numéro
+arbitraire, on l'oblige à désigner une entrée d'une liste écrite côté PBX.
+
+Dans `/etc/asterisk/extensions_custom.conf` :
+
+```ini
+; Destinations joignables depuis Home Assistant. Liste FERMÉE : une destination
+; absente d'ici n'existe pas, et l'Originate échoue. C'est ce qui fait qu'un
+; Home Assistant compromis ne peut pas composer un numéro surtaxé.
+;
+; `Local/<numéro>@from-internal` fait repasser l'appel par vos routes sortantes
+; habituelles : failover Freebox puis GSM, et vos filtres d'appels compris.
+[ha-appel]
+exten => mamie,1,NoOp(Home Assistant appelle Mamie)
+ same => n,Dial(Local/0102030405@from-internal,30)
+ same => n,Hangup()
+
+exten => medecin,1,NoOp(Home Assistant appelle le médecin)
+ same => n,Dial(Local/0102030406@from-internal,30)
+ same => n,Hangup()
+```
+
+Pas de motif attrape-tout : une extension non déclarée n'existe simplement pas, l'action
+échoue, et c'est exactement le comportement voulu. Ajouter un contact demande une ligne
+ici et un `fwconsole reload` — c'est délibérément un geste d'administration, pas un champ
+de formulaire.
+
+### Élargir le compte AMI
+
+```ini
+write = system,reporting,originate
+```
+
+> **Avant de le faire, vérifiez `live_dangerously`.** L'action `Originate` accepte un
+> paramètre `Application` : avec `Application: System`, elle exécute une commande sur la
+> machine. Asterisk bloque ce cas par défaut, mais le réglage `live_dangerously` de
+> `asterisk.conf` peut le rouvrir. Il doit rester à `no` :
+>
+> ```bash
+> sudo asterisk -rx "core show settings" | grep -i dangerous
+> ```
+>
+> Avec `live_dangerously = no` et la liste fermée ci-dessus, un Home Assistant compromis
+> peut faire sonner vos téléphones et appeler Mamie. C'est tout.
+
+Et vérifiez au passage ce que chaque action exige réellement chez vous — vous pourrez
+peut-être retirer `system` de `write` :
+
+```bash
+sudo asterisk -rx "manager show command Originate"
+sudo asterisk -rx "manager show command PJSIPShowEndpoints"
+```
+
+### Le script Home Assistant
+
+```yaml
+script:
+  appeler_un_contact:
+    alias: Appeler un contact depuis un poste
+    fields:
+      poste:
+        selector: {select: {options: ["100", "101", "102", "103", "104"]}}
+      contact:
+        selector: {select: {options: [mamie, medecin]}}
+    sequence:
+      - action: asterisk.send_action
+        data:
+          action: Originate
+          parameters:
+            Channel: "PJSIP/{{ poste }}"
+            Context: ha-appel
+            Exten: "{{ contact }}"
+            Priority: 1
+            CallerID: "Maison <{{ poste }}>"
+            Timeout: 30000
+            Async: "true"
+```
+
+`Async: true` compte : sans lui, l'AMI reste bloqué le temps que l'appel aboutisse, et
+Home Assistant considère l'action en échec au bout de son propre délai.
+
+Les `selector` ne sont pas décoratifs : ils empêchent qu'une automatisation mal écrite, ou
+une phrase mal reconnue par la synthèse vocale, envoie autre chose que les valeurs prévues.
+
+### L'automatisation
+
+```yaml
+automation:
+  - alias: Rappel du soir chez Mamie
+    triggers:
+      - trigger: time
+        at: "19:00:00"
+    conditions:
+      - condition: time
+        weekday: [sun]
+    actions:
+      - action: script.appeler_un_contact
+        data:
+          poste: "101"
+          contact: mamie
+```
+
+### Et pour la composition à la voix
+
+Le même script est la brique d'arrivée : une phrase personnalisée d'Assist (« appelle
+{contact} ») remplace le déclencheur horaire. Whisper tourne déjà dans Home Assistant via
+l'add-on Wyoming, il n'y a pas de moteur supplémentaire à installer.
+
+**Faites reconnaître des noms, pas des chiffres.** « Appelle Mamie » se résout dans la
+liste fermée ci-dessus ; « appelle le zéro six… » dépend d'une transcription qui peut se
+tromper d'un chiffre — et un chiffre de travers peut donner un numéro surtaxé. La liste
+fermée supprime toute cette classe de risque, et c'est la raison principale de sa
+présence.
+
+---
+
 ## Dépannage
 
 | Symptôme | Piste |
@@ -210,4 +341,6 @@ l'attribut `caller_id` sera plus utile que l'état lui-même.
 | Connecté, aucun appareil découvert | `PJSIPShowEndpoints` refusé faute de droits. `sudo asterisk -rx "manager show command PJSIPShowEndpoints"` donne la classe exigée, à ajouter à `write` |
 | Appareils présents, états figés | La classe `call` manque à `read` : la découverte passe, les événements non |
 | Pas de DTMF | La classe `dtmf` manque à `read`. L'intégration attend par ailleurs du « SIP-INFO DTMF-Relay », alors que les extensions sont en `RFC 4733` — les capteurs DTMF peuvent rester vides sans que le reste en souffre |
+| `Originate` refusé (`Permission denied`) | La classe `originate` manque à `write`. Voir « Déclencher un appel » ci-dessus |
+| L'appel sonne le poste puis raccroche | La destination n'existe pas dans `[ha-appel]`, ou `fwconsole reload` n'a pas été passé après l'avoir ajoutée |
 | Échecs d'identification en boucle | Quelqu'un d'autre tape sur le 5038. Resserrez la règle de pare-feu ; ces échecs sont journalisés en NOTICE, donc visibles de fail2ban |
