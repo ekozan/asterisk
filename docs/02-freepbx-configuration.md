@@ -23,6 +23,45 @@ En ligne de commande : `sudo fwconsole reload`.
 
 ## Les postes
 
+### Les importer plutôt que les saisir
+
+FreePBX importe les **extensions** par CSV, avec le module *Bulk Handler* — gratuit et
+installé d'office. Les trunks, routes sortantes et menus vocaux, eux, ne s'importent pas :
+ils restent à créer dans l'interface. Pour cinq postes contre trois trunks et deux menus,
+c'est bien la partie répétitive qui est automatisable.
+
+Un script produit ce CSV depuis la base du proof of concept, mots de passe SIP compris :
+
+```bash
+scripts/export-freepbx-extensions.py /var/lib/telephonie/telephonie.db
+```
+
+**Mais commencez par lui donner le bon en-tête.** Les colonnes attendues varient selon la
+version du module ; un en-tête approximatif produit un import qui échoue, ou pire, qui
+réussit en ignorant en silence ce qu'il ne reconnaît pas — le même mode de panne que les
+P-values Grandstream. La parade est la même : demander à la machine.
+
+1. Créez **un** poste à la main dans FreePBX.
+2. *Admin → Bulk Handler → Export → Extensions*. Vous obtenez un CSV.
+3. Relancez le script avec ce fichier :
+
+```bash
+scripts/export-freepbx-extensions.py /var/lib/telephonie/telephonie.db \
+    --template export-freepbx.csv -o extensions.csv
+```
+
+Il adopte alors exactement vos colonnes, remplit celles qu'il sait remplir, et vous dit
+lesquelles il a laissées vides. Puis *Bulk Handler → Import*.
+
+Deux choses que le script fait délibérément :
+
+- **il exclut les ponts FXO** — dans FreePBX ce sont des trunks, et les importer comme
+  extensions créerait un poste fantôme qui répondrait aux appels internes ;
+- **il reprend les mots de passe SIP tels quels**, donc vos ATA n'ont pas à être
+  reconfigurés de ce côté-là. Seul l'identifiant change, voir l'encadré plus bas.
+
+### Ou les créer à la main
+
 *Applications → Extensions → Add Extension → Add New PJSIP Extension*
 
 Un par appareil, en reprenant le plan de numérotation :
