@@ -50,19 +50,51 @@ endpoints, lancer un appel —, l'AMI n'apporterait qu'un mot de passe de plus �
 stocker et protéger, et une ACL de plus à maintenir cohérente.
 
 **Ce que la CLI ne sait pas donner**, en revanche, ce sont les **événements en temps réel**.
-Savoir qu'un poste sonne à la seconde près, pour qu'un satellite vocal annonce l'appelant,
-demande un flux poussé : `asterisk -rx` interrogé en boucle lancerait un processus par
-sondage et arriverait trop tard de toute façon.
+Savoir qu'un poste sonne à la seconde près demande un flux poussé : `asterisk -rx`
+interrogé en boucle lancerait un processus par sondage et arriverait trop tard.
 
-C'est ce qui a fait revenir l'AMI dans l'installation, mais **strictement pour observer** :
-`bindaddr = 127.0.0.1`, ACL `permit = 127.0.0.1/32`, et un compte sans aucun droit
-d'écriture — donc incapable d'originer un appel ou de recharger quoi que ce soit. La
-partie qui agit (l'interface) et la partie qui observe (le pont) n'ont ni le même chemin
-ni les mêmes droits.
+C'est ce qui a fait revenir l'AMI dans l'installation, pour l'intégration Home Assistant —
+voir la décision suivante.
 
-**Ce qu'on écarte** : faire piloter Asterisk par Home Assistant via l'AMI. L'API JSON de
-l'interface (`/api/call`, `/api/notify`) existe pour ça, avec son propre jeton et sa propre
-validation des numéros. Un seul chemin d'écriture, contrôlé au même endroit.
+**Ce qu'on écarte quand même** : faire *piloter* Asterisk par Home Assistant. Le compte AMI
+ne porte ni `originate` ni `call` en écriture ; il observe et interroge. L'API JSON de
+l'interface (`/api/call`, `/api/notify`) reste le seul chemin pour agir, avec son jeton et
+sa validation des numéros — un seul chemin d'écriture, contrôlé au même endroit.
+
+---
+
+## 2 bis. L'intégration HACS plutôt qu'un pont maison
+
+**Décision.** Home Assistant parle directement à l'AMI, par
+[`TECH7Fox/asterisk-hass-integration`](https://github.com/TECH7Fox/asterisk-hass-integration).
+Ce dépôt ne fournit que la configuration Asterisk qu'elle exige.
+
+**L'alternative essayée.** Un service local, `telephonie-events`, a existé ici (commits
+`5811b90` à `cb6230f`). Il lisait l'AMI sur `127.0.0.1` avec un compte sans aucun droit
+d'écriture, et republiait vers MQTT avec découverte Home Assistant — y compris les
+enregistrements d'appel complets, durée et issue, via `cdr_manager`.
+
+**Pourquoi l'avoir retiré.** Il faisait, en 400 lignes à maintenir, ce qu'une intégration
+maintenue par une communauté fait déjà : état par poste, joignabilité, identité de
+l'appelant. Il imposait en plus un courtier MQTT et un fichier d'environnement à tenir à
+jour, là où l'intégration se configure dans l'interface de Home Assistant. Et elle apporte
+des capteurs DTMF qu'on n'avait pas, utiles pour un portier.
+
+**Ce que ça coûte, et il faut le regarder en face :**
+
+- **L'AMI quitte la boucle locale.** L'intégration tourne dans Home Assistant, donc le port
+  5038 doit être joignable depuis le réseau d'administration. C'est le seul point de
+  pilotage du PBX exposé hors de la VM.
+- **Le compte a des droits d'exécution.** L'intégration lance `SIPpeers` et
+  `PJSIPShowEndpoints` pour découvrir les postes : un compte en lecture seule ne suffit
+  pas. On le taille au plus juste (`write = system,reporting`, sans `originate`), mais ce
+  n'est plus « ce qui observe ne peut pas agir ».
+- **Plus d'enregistrements d'appel.** Ni durée, ni issue, ni « sans réponse » dans Home
+  Assistant. Le CDR en CSV reste la source, lisible depuis l'écran Journal.
+
+**Ce qui ferait revenir en arrière** : ouvrir ce VLAN à autre chose que des équipements de
+confiance, ou vouloir un historique d'appels dans Home Assistant. `git show 5811b90`
+ramène le pont.
 
 ---
 
@@ -220,7 +252,7 @@ demande une validation de deux minutes sur un appareil.
 | Sujet | Version initiale | Ici | Motif |
 |---|---|---|---|
 | Menu « personne » | Script AGI appelant l'API | Dialplan généré | Supprime l'API du chemin de l'appel |
-| AMI | Activé sur `127.0.0.1`, compte en écriture | Activé, compte en **lecture seule** | `asterisk -rx` suffit pour agir ; l'AMI n'apporte que les événements |
+| AMI | Activé, compte `read = all, write = all` | Activé pour la seule adresse de Home Assistant, classes taillées, sans `originate` | L'intégration a besoin d'exécuter des actions ; elle n'a pas besoin de pouvoir appeler |
 | Port de l'interface | 8000 | 8080 | Évite la collision avec d'autres services courants |
 | `allowguest` / `alwaysauthreject` | Repris dans `pjsip.conf` | Retirés | Options `chan_sip`, sans effet en PJSIP — voir [06 — Sécurité](06-securite.md) |
 | Numéros d'urgence | Non traités | Générés et protégés | Collision possible avec le plan `1xx` |

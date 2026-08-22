@@ -13,7 +13,7 @@ regarde avant de modifier quoi que ce soit.
 ├── logger.conf             ← STATIQUE
 ├── rtp.conf                ← STATIQUE
 ├── cdr.conf                ← STATIQUE
-├── manager.conf            ← STATIQUE   AMI local, lecture seule
+├── manager.conf            ← STATIQUE   AMI, pour Home Assistant
 ├── quectel.conf            ← STATIQUE   module GSM
 └── generated/
     ├── pjsip_endpoints.conf        ← GÉNÉRÉ  un bloc par poste
@@ -243,18 +243,26 @@ source négociée.
 le socket de contrôle local — accessible parce que le service tourne sous l'utilisateur
 `asterisk`. Ni mot de passe, ni ACL à maintenir pour ça.
 
-L'AMI est activé pour un seul usage : `telephonie-events`, qui a besoin du **flux
-d'événements en temps réel** que la CLI ne sait pas donner — savoir qu'un poste sonne à la
-seconde près, pour prévenir Home Assistant. Voir [11 — Home Assistant](11-home-assistant.md).
+L'AMI est activé pour un seul usage : l'intégration Home Assistant, qui tourne chez elle
+et se connecte donc **depuis le réseau**. Voir [11 — Home Assistant](11-home-assistant.md).
 
 Trois barrières l'encadrent :
 
-- `bindaddr = 127.0.0.1` : rien venu du réseau n'arrive jusqu'au port 5038 ;
-- `deny = 0.0.0.0/0` puis `permit = 127.0.0.1/32` : même si `bindaddr` changeait par
-  accident, seule la machine elle-même serait acceptée ;
-- le compte est en **lecture seule** (`write =` vide), donc incapable d'originer un appel
-  ou de recharger la configuration. Ce qui observe ne peut pas agir.
+- **aucun compte tant que `install.sh --ha-ip` n'a pas été passé.** Sans lui, `manager.d/`
+  est vide et personne ne peut s'identifier, quel que soit le `bindaddr` ;
+- `deny = 0.0.0.0/0` puis `permit` sur la seule adresse de Home Assistant ;
+- des classes taillées au besoin : `read = system,call,dtmf,reporting`,
+  `write = system,reporting`. Pas de `originate`, donc ce compte **ne peut pas lancer
+  d'appel** — le scénario de fraude reste hors de portée même si Home Assistant tombe.
 
-Le compte lui-même n'est pas dans ce fichier ni dans le dépôt : `scripts/install.sh` écrit
-`manager.d/telephonie-events.conf` avec un secret tiré au hasard, inclus par la dernière
-ligne de `manager.conf`. Un secret versionné serait le même sur toutes les installations.
+`read` gouverne les événements reçus, `write` les actions autorisées : deux choses
+distinctes, ce qui explique qu'on lise si souvent `read = all, write = all`. Pour savoir ce
+qu'une action exige, Asterisk le dit :
+
+```bash
+asterisk -rx "manager show command PJSIPShowEndpoints"
+```
+
+Le compte lui-même n'est ni dans ce fichier ni dans le dépôt : `scripts/install.sh` écrit
+`manager.d/homeassistant.conf` avec un secret tiré au hasard, inclus par la dernière ligne
+de `manager.conf`. Un secret versionné serait le même sur toutes les installations.

@@ -92,10 +92,10 @@ système de fichiers. L'interface écrit dans `/etc/asterisk/generated/`, puis d
 Asterisk de relire ses fichiers. Aucun port supplémentaire n'est ouvert sur le réseau, et
 — surtout — **aucun appel ne traverse l'interface**.
 
-Un seul composant s'écarte de ce schéma : `telephonie-events`, qui lit le flux d'événements
-d'Asterisk par l'AMI (`127.0.0.1:5038`, compte en lecture seule) pour le republier vers
-Home Assistant. Il observe et ne décide de rien : arrêté, les appels se déroulent
-exactement pareil.
+Une exception : l'**AMI** (port 5038), ouvert à la seule adresse de Home Assistant, dont
+l'intégration tourne chez lui et se connecte donc depuis le réseau. C'est le seul point de
+pilotage joignable hors de la VM ; son compte est restreint aux classes nécessaires et ne
+peut pas lancer d'appel. Voir [11 — Home Assistant](11-home-assistant.md).
 
 ## Chaîne de traitement d'un appel
 

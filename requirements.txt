@@ -5,7 +5,3 @@ fastapi>=0.115,<1.0
 uvicorn[standard]>=0.30,<1.0
 jinja2>=3.1,<4.0
 python-multipart>=0.0.9
-
-# Client MQTT du service telephonie-events (pont vers Home Assistant). Le reste
-# de l'application ne l'importe pas : l'UI et le provisionnement démarrent sans.
-paho-mqtt>=2.0,<3.0

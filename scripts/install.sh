@@ -4,6 +4,7 @@
 #
 #   sudo ./scripts/install.sh                      # UI seulement
 #   sudo ./scripts/install.sh --with-asterisk-conf # + fichiers /etc/asterisk
+#   sudo ./scripts/install.sh --ha-ip 10.0.5.10    # + compte AMI pour Home Assistant
 #
 # Ce script ne compile pas Asterisk : voir docs/02-installation.md pour cette
 # partie, qui se fait une fois et mérite d'être suivie à la main.
@@ -19,6 +20,7 @@ WITH_CONF=0
 for arg in "$@"; do
   case "$arg" in
     --with-asterisk-conf) WITH_CONF=1 ;;
+    --ha-ip) HA_IP=$2; shift ;;
     *) echo "Option inconnue : $arg" >&2; exit 2 ;;
   esac
 done
@@ -67,13 +69,13 @@ if [[ $WITH_CONF -eq 1 ]]; then
   echo "==> Sauvegarde de la configuration actuelle dans $BACKUP"
   install -d -m 0750 "$BACKUP"
   for file in pjsip.conf extensions.conf voicemail.conf logger.conf rtp.conf \
-              cdr.conf cdr_manager.conf manager.conf; do
+              cdr.conf manager.conf; do
     [[ -f "$ASTERISK_ETC/$file" ]] && cp -a "$ASTERISK_ETC/$file" "$BACKUP/"
   done
 
   echo "==> Déploiement des fichiers de configuration"
   for file in pjsip.conf extensions.conf voicemail.conf logger.conf rtp.conf \
-              cdr.conf cdr_manager.conf manager.conf; do
+              cdr.conf manager.conf; do
     install -o asterisk -g asterisk -m 0640 "$REPO/asterisk/$file" "$ASTERISK_ETC/$file"
   done
 
@@ -90,63 +92,55 @@ if [[ $WITH_CONF -eq 1 ]]; then
   echo "    Ancienne configuration conservée dans $BACKUP"
 fi
 
-echo "==> Compte AMI du pont Home Assistant"
-# Le secret n'est pas dans le dépôt : versionné, il serait le même partout. Il
-# est tiré une fois et jamais renouvelé automatiquement — le régénérer à chaque
-# installation couperait le pont sans que rien ne le dise.
-AMI_ACCOUNT=$ASTERISK_ETC/manager.d/telephonie-events.conf
-if [[ -f "$AMI_ACCOUNT" ]]; then
+echo "==> Compte AMI pour Home Assistant"
+# Fermé par défaut, comme le service de provisionnement : sans --ha-ip, aucun
+# compte n'est écrit et personne ne peut se connecter à l'AMI, quel que soit le
+# bindaddr de manager.conf.
+AMI_ACCOUNT=$ASTERISK_ETC/manager.d/homeassistant.conf
+if [[ -z "${HA_IP:-}" ]]; then
+  echo "    --ha-ip non fourni : aucun compte AMI (voir docs/11-home-assistant.md)"
+elif [[ -f "$AMI_ACCOUNT" ]]; then
   echo "    $AMI_ACCOUNT existe déjà, secret conservé"
-  # La classe `cdr` a été ajoutée après coup : sans elle, les enregistrements
-  # d'appel sont émis par Asterisk mais jamais délivrés, en silence.
-  if ! grep -q '^read = .*cdr' "$AMI_ACCOUNT"; then
-    sed -i 's/^read = .*/read = system,call,dialplan,cdr/' "$AMI_ACCOUNT"
-    echo "    classe « cdr » ajoutée au compte AMI"
+  if ! grep -q "^permit = $HA_IP/32" "$AMI_ACCOUNT"; then
+    sed -i "s|^permit = .*|permit = $HA_IP/32|" "$AMI_ACCOUNT"
+    echo "    adresse de Home Assistant mise à jour : $HA_IP"
   fi
 else
   install -d -o asterisk -g asterisk -m 0750 "$ASTERISK_ETC/manager.d"
   AMI_SECRET=$(head -c 24 /dev/urandom | base64 | tr -d '/+=' | head -c 32)
   umask 027
   cat > "$AMI_ACCOUNT" <<EOF
-; Compte AMI du service telephonie-events. Écrit par scripts/install.sh.
-; Lecture seule et limité à la boucle locale : ce compte ne peut pas originer
-; d'appel ni recharger la configuration.
-[telephonie-events]
+; Compte AMI de l'intégration Home Assistant. Écrit par scripts/install.sh.
+;
+; \`read\` gouverne les événements reçus, \`write\` les actions autorisées.
+; L'intégration a besoin des deux : elle écoute les changements d'état et
+; exécute SIPpeers / PJSIPShowEndpoints pour découvrir les postes.
+;
+; \`write\` ne contient volontairement ni \`originate\` ni \`call\` : ce compte ne
+; peut pas lancer d'appel. Voir docs/11-home-assistant.md avant d'élargir.
+[homeassistant]
 secret = $AMI_SECRET
 deny = 0.0.0.0/0
-permit = 127.0.0.1/32
-read = system,call,dialplan,cdr
-write =
+permit = $HA_IP/32
+read = system,call,dtmf,reporting
+write = system,reporting
 EOF
   chown asterisk:asterisk "$AMI_ACCOUNT"
   chmod 0640 "$AMI_ACCOUNT"
-  echo "    compte créé dans $AMI_ACCOUNT"
+  echo "    compte créé, limité à $HA_IP"
+  echo
+  echo "    À saisir dans Home Assistant (Paramètres > Appareils et services) :"
+  echo "      Hôte      : $(hostname -I | awk '{print $1}')"
+  echo "      Port      : 5038"
+  echo "      Nom       : homeassistant"
+  echo "      Mot de passe : $AMI_SECRET"
+  echo
 fi
 
 echo "==> Services systemd"
 install -m 0644 "$REPO/systemd/telephonie-ui.service" /etc/systemd/system/
 install -m 0644 "$REPO/systemd/telephonie-prov.service" /etc/systemd/system/
-install -m 0644 "$REPO/systemd/telephonie-events.service" /etc/systemd/system/
 install -d -m 0755 /etc/telephonie
-
-# Gabarit d'environnement du pont, créé vide de courtier : sans
-# TELEPHONIE_MQTT_HOST, le service refuse de démarrer plutôt que de tourner à
-# vide. C'est à l'exploitant de renseigner son courtier.
-if [[ ! -f /etc/telephonie/events.env ]]; then
-  {
-    echo "# Pont vers Home Assistant. Renseignez le courtier MQTT puis :"
-    echo "#   sudo systemctl enable --now telephonie-events"
-    echo "# Voir docs/11-home-assistant.md"
-    echo "TELEPHONIE_MQTT_HOST="
-    echo "TELEPHONIE_MQTT_PORT=1883"
-    echo "TELEPHONIE_MQTT_USER="
-    echo "TELEPHONIE_MQTT_PASSWORD="
-    echo "TELEPHONIE_AMI_USER=telephonie-events"
-    echo "TELEPHONIE_AMI_SECRET=$(sed -n 's/^secret = //p' "$AMI_ACCOUNT")"
-  } > /etc/telephonie/events.env
-  chown root:asterisk /etc/telephonie/events.env
-  chmod 0640 /etc/telephonie/events.env
-fi
 
 systemctl daemon-reload
 systemctl enable --now telephonie-ui.service
@@ -162,8 +156,12 @@ echo "  Tunnel   : ssh -L 8080:127.0.0.1:8080 <vous>@<vm>"
 echo "  Données  : $DATA/telephonie.db"
 echo "  Provis.  : écoute sur 127.0.0.1:8081 — pour l'ouvrir au VLAN voix, voir"
 echo "             docs/10-provisionnement.md"
-echo "  Home Ass.: renseignez le courtier MQTT dans /etc/telephonie/events.env,"
-echo "             puis: sudo systemctl enable --now telephonie-events"
+if [[ -n "${HA_IP:-}" ]]; then
+  echo "  Home Ass.: compte AMI prêt pour $HA_IP — ouvrez le port 5038 pour cette"
+  echo "             seule adresse, puis ajoutez l'intégration côté HA"
+else
+  echo "  Home Ass.: relancez avec --ha-ip <adresse> pour créer le compte AMI"
+fi
 echo
 echo "Pour partir de l'installation de référence plutôt que d'une base vide :"
 echo "  sudo -u asterisk $PREFIX/venv/bin/python $PREFIX/scripts/seed.py"

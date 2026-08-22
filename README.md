@@ -20,10 +20,9 @@ jamais éditer un fichier `.conf` à la main.
 - **Édition des fichiers à la main, depuis l'interface** : les `.conf` que les formulaires
   ne couvrent pas s'éditent dans le navigateur, avec historique et retour arrière
   automatique si Asterisk refuse la nouvelle version.
-- **Remontée vers Home Assistant** : état de chaque ligne, chaque appel — entrant,
-  sortant ou interne — publié sur MQTT avec numéro et horodatage, et l'enregistrement
-  complet en fin d'appel (durée, issue). Hors du chemin de l'appel : de quoi faire
-  annoncer l'appelant par un satellite vocal sans jamais retarder une sonnerie.
+- **Prêt pour Home Assistant** : compte AMI restreint, créé à l'installation pour la
+  seule adresse de votre Home Assistant, à l'usage de l'intégration HACS qui suit l'état
+  des postes et l'identité des appelants.
 
 ## Le principe à retenir
 
@@ -92,7 +91,7 @@ ssh -L 8080:127.0.0.1:8080 vous@la-vm
 | [08 — Matériel](docs/08-materiel.md) | Réglages des ATA, du DECT, du module GSM |
 | [09 — Choix techniques](docs/09-choix-techniques.md) | Décisions prises, et ce qu'elles écartent |
 | [10 — Provisionnement](docs/10-provisionnement.md) | Configuration automatique des ATA Grandstream |
-| [11 — Home Assistant](docs/11-home-assistant.md) | État des lignes et notification d'appel par MQTT |
+| [11 — Home Assistant](docs/11-home-assistant.md) | Compte AMI pour l'intégration HACS |
 
 ## Arborescence
 
@@ -103,8 +102,8 @@ app/              interface web (FastAPI) et générateur de configuration
 asterisk/         fichiers de configuration statiques, édités à la main
 docs/             documentation
 scripts/          bootstrap (install complète), install (UI seule), seed, TTS, sauvegarde
-systemd/          unités des trois services (interface, provisionnement, événements)
-tests/            177 tests couvrant le générateur, l'interface, l'éditeur et le pont
+systemd/          unités des services (interface, provisionnement)
+tests/            118 tests couvrant le générateur, l'interface et l'éditeur
 ```
 
 ## Tests
