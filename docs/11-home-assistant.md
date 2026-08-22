@@ -10,6 +10,7 @@ poste :
 | `binary_sensor.<poste>_joignable` | connectivité | Asterisk sait où joindre l'appareil — il est branché et enregistré |
 | `sensor.<poste>_etat` | texte | `libre`, `sonne`, `en ligne`, `occupé`, `injoignable` |
 | `event.<poste>_appel` | événement | un appel commence, dans un sens ou dans l'autre |
+| `event.telephonie_appel_termine` | événement | un appel s'achève : durée, issue, numéros — une seule entité pour toute l'installation |
 
 L'entité `event` est celle qui déclenche une automatisation. Son `event_type` porte le
 sens de l'appel, et ses attributs le reste :
@@ -163,6 +164,54 @@ Tous par variables d'environnement, dans `/etc/telephonie/events.env`.
 
 ---
 
+## Les appels terminés
+
+Asterisk **n'a pas de backend CDR vers MQTT**, et n'en aura pas. La façon prévue de sortir
+les enregistrements en temps réel est de les émettre sur l'AMI et de laisser un pont
+externe les traduire : c'est le module `cdr_manager`, que `install.sh --with-asterisk-conf`
+active, et que le même service traduit sur la connexion AMI déjà ouverte.
+
+`DialBegin` dit qu'un téléphone sonne ; le CDR dit ce que l'appel est devenu :
+
+```json
+{
+  "event_type": "sans_reponse",
+  "sens": "entrant",
+  "source": "0102030405",
+  "destination": "100",
+  "poste": "Salon",
+  "debut": "2026-08-21 01:32:03",
+  "reponse": "",
+  "fin": "2026-08-21 01:32:33",
+  "duree": 30,
+  "duree_conversation": 0,
+  "horodatage": "2026-08-21T01:32:33+02:00"
+}
+```
+
+`event_type` porte l'issue : `repondu`, `sans_reponse`, `occupe`, `echec`, `congestion`.
+`duree` compte depuis le début de l'appel, `duree_conversation` depuis le décroché — leur
+écart, c'est le temps de sonnerie.
+
+**Une seule entité pour toute l'installation**, pas une par poste : un appel sans réponse
+n'a pas de poste, et c'est précisément celui qu'on veut voir passer.
+
+Deux choses à savoir :
+
+- **Le compte AMI doit porter la classe `cdr`** dans son `read`. Sans elle, Asterisk émet
+  les enregistrements et l'AMI ne les délivre pas — sans le moindre message. `install.sh`
+  ajoute la classe aux comptes existants.
+- **Un appel produit un enregistrement par tronçon**, selon les réglages de `cdr.conf`
+  (`unanswered=yes` en ajoute). Les tronçons techniques (canaux `Local/`) sont écartés et
+  chaque identifiant n'est annoncé qu'une fois, mais si vous voyez encore des doublons,
+  `--dump` montre exactement ce qu'Asterisk émet.
+
+Le CSV (`/var/log/asterisk/cdr-csv/Master.csv`) continue de tourner en parallèle : c'est la
+trace durable, lisible même quand le courtier et Home Assistant sont éteints. MQTT en est
+une copie volatile.
+
+---
+
 ## Automatisation : annoncer l'appelant
 
 L'entité `event` porte les attributs `numero`, `nom` et `poste`. Une automatisation qui
@@ -206,16 +255,15 @@ appeler.
 
 ### Journaliser tous les appels
 
-Les trois sens passent par la même entité. Pour tout consigner, sans filtre de sens :
+Une seule entité suffit — celle des appels terminés couvre toute l'installation, et porte
+la durée que l'événement de début ne connaît pas encore :
 
 ```yaml
 automation:
   - alias: Journal des appels
     triggers:
       - trigger: state
-        entity_id:
-          - event.salon_appel
-          - event.etage_appel
+        entity_id: event.telephonie_appel_termine
     conditions:
       - condition: template
         value_template: "{{ trigger.from_state.state not in ['unknown', 'unavailable'] }}"
@@ -224,15 +272,15 @@ automation:
         data:
           name: Téléphone
           message: >
-            {{ trigger.to_state.attributes.event_type }} —
-            {{ trigger.to_state.attributes.numero or 'masqué' }} —
-            {{ trigger.to_state.attributes.poste }}
+            {% set a = trigger.to_state.attributes %}
+            {{ a.sens }} — {{ a.source or 'masqué' }} → {{ a.destination }} —
+            {{ a.event_type }}
+            {% if a.duree_conversation %} ({{ a.duree_conversation }} s){% endif %}
 ```
 
-> Un appel sortant émis depuis un poste qui n'est pas dans la liste ne sera pas consigné :
-> pensez à l'étendre quand vous ajoutez un poste. La source complète et sans trou reste le
-> CDR (`/var/log/asterisk/cdr-csv/Master.csv`), que l'écran **Journal** de l'interface
-> affiche déjà.
+> Rien à étendre quand vous ajoutez un poste, contrairement à une automatisation bâtie sur
+> les entités par poste. La source complète et sans trou reste malgré tout le CDR en CSV,
+> que l'écran **Journal** de l'interface affiche déjà.
 
 ---
 
@@ -243,10 +291,9 @@ depuis Home Assistant par ce chemin. Pour ça, l'API JSON existante a déjà `/a
 `/api/notify` — voir [04 — Interface](04-interface.md#api-json). Les deux mécanismes sont
 volontairement séparés : celui qui observe ne peut pas agir.
 
-**Il ne dit pas si l'appel a abouti.** Seul le début d'un `Dial()` est traduit : un appel
-qui sonne dans le vide produit le même événement qu'un appel décroché. La durée et l'issue
-sont dans le CDR — les publier demanderait de suivre `DialEnd` et `Hangup`, ce qui n'est
-pas implémenté.
+**Il ne publie pas les changements d'état pendant l'appel.** Mise en attente, transfert,
+conférence : rien de tout ça n'est traduit. L'état du poste (`en ligne`) et les deux
+bornes de l'appel suffisent à l'usage visé.
 
 **Il ne remonte pas la messagerie vocale.** Les nouveaux messages sont visibles dans
 l'interface et envoyés par courriel ; les publier sur MQTT demanderait de suivre
@@ -264,5 +311,6 @@ l'événement `MessageWaiting`, ce qui n'est pas implémenté.
 | `AMI : connexion fermée` en boucle | `manager.conf` contient-il `enabled = yes` et l'inclusion `manager.d/*.conf` ? `asterisk -rx "manager show settings"` |
 | L'état reste `injoignable` | C'est l'état réel : le poste n'est pas enregistré. Voir [07 — Dépannage](07-depannage.md#un-poste-napparaît-pas-comme-enregistré) |
 | Un appel annoncé deux fois | Deux postes sonnent pour le même appel (groupe, ou personne avec plusieurs postes) : chacun émet son événement, c'est voulu. Filtrez sur un seul poste dans l'automatisation |
+| Aucun événement d'appel terminé | La classe `cdr` manque au compte AMI : `grep read /etc/asterisk/manager.d/telephonie-events.conf`. Vérifiez aussi `enabled = yes` dans `cdr_manager.conf` |
 | `numero` vide sur les appels sortants | `DialString` a une forme que le découpage ne reconnaît pas. `python -m app.events --dump`, passez un appel sortant, lisez le champ `dialstring` |
 | Un appel entrant annoncé comme « interne » | Le pont FXO n'est pas marqué `kind = fxo` dans la base. Écran **Postes**, type « Pont vers ligne externe (FXO) » |

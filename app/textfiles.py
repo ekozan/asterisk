@@ -61,6 +61,11 @@ EDITABLE: dict[str, EditableFile] = {
         "cdr.conf", "module reload cdr",
         "Journal d'appels : ce que l'écran « Journal » lit.",
     ),
+    "cdr_manager": EditableFile(
+        "cdr_manager.conf", "module reload cdr_manager",
+        "Publication des enregistrements d'appel sur l'AMI, pour le pont "
+        "Home Assistant.",
+    ),
     "manager": EditableFile(
         "manager.conf", "manager reload",
         "Interface AMI, utilisée par le service d'événements.",

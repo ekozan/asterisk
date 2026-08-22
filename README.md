@@ -20,9 +20,10 @@ jamais éditer un fichier `.conf` à la main.
 - **Édition des fichiers à la main, depuis l'interface** : les `.conf` que les formulaires
   ne couvrent pas s'éditent dans le navigateur, avec historique et retour arrière
   automatique si Asterisk refuse la nouvelle version.
-- **Remontée vers Home Assistant** : état de chaque ligne, et chaque appel — entrant,
-  sortant ou interne — publié sur MQTT avec numéro et horodatage, hors du chemin de
-  l'appel. De quoi faire annoncer l'appelant par un satellite vocal.
+- **Remontée vers Home Assistant** : état de chaque ligne, chaque appel — entrant,
+  sortant ou interne — publié sur MQTT avec numéro et horodatage, et l'enregistrement
+  complet en fin d'appel (durée, issue). Hors du chemin de l'appel : de quoi faire
+  annoncer l'appelant par un satellite vocal sans jamais retarder une sonnerie.
 
 ## Le principe à retenir
 
@@ -103,7 +104,7 @@ asterisk/         fichiers de configuration statiques, édités à la main
 docs/             documentation
 scripts/          bootstrap (install complète), install (UI seule), seed, TTS, sauvegarde
 systemd/          unités des trois services (interface, provisionnement, événements)
-tests/            163 tests couvrant le générateur, l'interface, l'éditeur et le pont
+tests/            177 tests couvrant le générateur, l'interface, l'éditeur et le pont
 ```
 
 ## Tests

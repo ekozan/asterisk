@@ -67,13 +67,13 @@ if [[ $WITH_CONF -eq 1 ]]; then
   echo "==> Sauvegarde de la configuration actuelle dans $BACKUP"
   install -d -m 0750 "$BACKUP"
   for file in pjsip.conf extensions.conf voicemail.conf logger.conf rtp.conf \
-              cdr.conf manager.conf; do
+              cdr.conf cdr_manager.conf manager.conf; do
     [[ -f "$ASTERISK_ETC/$file" ]] && cp -a "$ASTERISK_ETC/$file" "$BACKUP/"
   done
 
   echo "==> Déploiement des fichiers de configuration"
   for file in pjsip.conf extensions.conf voicemail.conf logger.conf rtp.conf \
-              cdr.conf manager.conf; do
+              cdr.conf cdr_manager.conf manager.conf; do
     install -o asterisk -g asterisk -m 0640 "$REPO/asterisk/$file" "$ASTERISK_ETC/$file"
   done
 
@@ -97,6 +97,12 @@ echo "==> Compte AMI du pont Home Assistant"
 AMI_ACCOUNT=$ASTERISK_ETC/manager.d/telephonie-events.conf
 if [[ -f "$AMI_ACCOUNT" ]]; then
   echo "    $AMI_ACCOUNT existe déjà, secret conservé"
+  # La classe `cdr` a été ajoutée après coup : sans elle, les enregistrements
+  # d'appel sont émis par Asterisk mais jamais délivrés, en silence.
+  if ! grep -q '^read = .*cdr' "$AMI_ACCOUNT"; then
+    sed -i 's/^read = .*/read = system,call,dialplan,cdr/' "$AMI_ACCOUNT"
+    echo "    classe « cdr » ajoutée au compte AMI"
+  fi
 else
   install -d -o asterisk -g asterisk -m 0750 "$ASTERISK_ETC/manager.d"
   AMI_SECRET=$(head -c 24 /dev/urandom | base64 | tr -d '/+=' | head -c 32)
@@ -109,7 +115,7 @@ else
 secret = $AMI_SECRET
 deny = 0.0.0.0/0
 permit = 127.0.0.1/32
-read = system,call,dialplan
+read = system,call,dialplan,cdr
 write =
 EOF
   chown asterisk:asterisk "$AMI_ACCOUNT"

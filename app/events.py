@@ -49,6 +49,9 @@ DISCOVERY_PREFIX = os.environ.get(
 ).strip("/")
 
 STATUS_TOPIC = f"{PREFIX}/status"
+# Les CDR ne sont pas rattachés à un poste : un appel sans réponse n'en a
+# aucun. Ils vont donc sur un sujet unique, pas sur un sujet par poste.
+CDR_TOPIC = f"{PREFIX}/cdr"
 
 # États remontés par Asterisk, traduits pour l'affichage dans Home Assistant.
 DEVICE_STATES = {
@@ -61,6 +64,17 @@ DEVICE_STATES = {
     "UNAVAILABLE": "injoignable",
     "INVALID": "inconnu",
     "UNKNOWN": "inconnu",
+}
+
+# Issue d'un appel, telle que le CDR la rapporte. Les valeurs d'Asterisk
+# contiennent des espaces : on les normalise, parce qu'un `event_type` de Home
+# Assistant sert d'identifiant dans les automatisations.
+DISPOSITIONS = {
+    "ANSWERED": "repondu",
+    "NO ANSWER": "sans_reponse",
+    "BUSY": "occupe",
+    "FAILED": "echec",
+    "CONGESTION": "congestion",
 }
 
 # `ContactStatus` dit si Asterisk sait où joindre l'appareil. C'est la réponse à
@@ -171,6 +185,15 @@ def number_from_dialstring(dialstring: str) -> str:
     return number.rsplit("/", 1)[-1].strip()
 
 
+def _entier(value: str) -> int:
+    """Durée du CDR en secondes. Absente ou illisible vaut zéro : une durée
+    manquante ne doit pas empêcher l'annonce de l'appel."""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
 def _clean_identity(value: str) -> str:
     """Asterisk écrit `<unknown>` pour un appelant masqué.
 
@@ -206,6 +229,8 @@ class Translator:
             return self._contact_status(event)
         if name == "DialBegin":
             return self._appel(event)
+        if name == "Cdr":
+            return self._cdr(event)
         return []
 
     def _maison(self, slug: str | None) -> bool:
@@ -274,6 +299,63 @@ class Translator:
         # Sans `retain` : un événement rejoué au redémarrage du courtier ferait
         # annoncer un appel terminé depuis longtemps.
         return [Publication(f"{PREFIX}/{slug}/appel", payload, retain=False)]
+
+    def _sens(self, appelant: str | None, appele: str | None) -> str | None:
+        """Sens d'un appel d'après ses deux extrémités.
+
+        Sur un CDR, l'extrémité appelée manque quand personne n'a décroché : le
+        côté appelant suffit alors à trancher, un trunk d'un côté valant
+        « l'extérieur ».
+        """
+        if self._maison(appelant) and self._maison(appele):
+            return "interne"
+        if self._maison(appelant):
+            return "sortant"
+        if appelant in self.postes:  # un trunk, donc l'extérieur
+            return "entrant"
+        if self._maison(appele):
+            return "entrant"
+        return None
+
+    def _cdr(self, event: dict[str, str]) -> list[Publication]:
+        """Fin d'appel : durée et issue, que `DialBegin` ne peut pas donner.
+
+        Vient de `cdr_manager`, le seul chemin par lequel Asterisk publie un
+        enregistrement d'appel en temps réel — il n'a pas de backend CDR vers
+        MQTT, et le CSV n'est écrit qu'après coup.
+        """
+        appelant = _endpoint_of(event.get("channel", ""))
+        appele = _endpoint_of(event.get("destinationchannel", ""))
+        sens = self._sens(appelant, appele)
+        if sens is None:
+            # Canal `Local/`, ou tronçon interne d'un appel : ces CDR doublent
+            # celui du vrai canal et gonfleraient le journal.
+            return []
+
+        # Un appel produit un enregistrement par tronçon selon les réglages de
+        # cdr.conf ; on n'annonce chaque identifiant qu'une fois.
+        if self._deja_vu(event.get("uniqueid", ""), "cdr"):
+            return []
+
+        poste = appelant if sens == "sortant" else appele
+        libelle = self.postes[poste].label if poste in self.postes else ""
+
+        payload = json.dumps({
+            "event_type": DISPOSITIONS.get(
+                event.get("disposition", "").upper(), "inconnu"
+            ),
+            "sens": sens,
+            "source": event.get("source", ""),
+            "destination": event.get("destination", ""),
+            "poste": libelle,
+            "debut": event.get("starttime", ""),
+            "reponse": event.get("answertime", ""),
+            "fin": event.get("endtime", ""),
+            "duree": _entier(event.get("duration", "")),
+            "duree_conversation": _entier(event.get("billableseconds", "")),
+            "horodatage": self.now(),
+        }, ensure_ascii=False)
+        return [Publication(CDR_TOPIC, payload, retain=False)]
 
     def _deja_vu(self, uniqueid: str, slug: str) -> bool:
         """Vrai si ce même appel a déjà été annoncé pour ce poste.
@@ -367,6 +449,24 @@ def discovery(postes: dict[str, Poste]) -> list[Publication]:
             }, ensure_ascii=False),
             retain=True,
         ))
+
+    # Une seule entité pour les appels terminés, pas une par poste : un appel
+    # sans réponse n'a pas de poste, et c'est justement celui qu'on veut voir.
+    out.append(Publication(
+        f"{DISCOVERY_PREFIX}/event/{PREFIX}/cdr/config",
+        json.dumps({
+            "device": _device_block(),
+            "availability_topic": STATUS_TOPIC,
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "name": "Appel terminé",
+            "unique_id": f"{PREFIX}_cdr",
+            "state_topic": CDR_TOPIC,
+            "event_types": sorted(set(DISPOSITIONS.values())) + ["inconnu"],
+            "icon": "mdi:phone-log",
+        }, ensure_ascii=False),
+        retain=True,
+    ))
     return out
 
 

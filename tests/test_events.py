@@ -315,6 +315,8 @@ def test_la_decouverte_declare_trois_entites_par_poste():
         "homeassistant/binary_sensor/telephonie/salon_joignable/config",
         "homeassistant/sensor/telephonie/salon_etat/config",
         "homeassistant/event/telephonie/salon_appel/config",
+        # Plus une entité globale pour les appels terminés, tous postes confondus.
+        "homeassistant/event/telephonie/cdr/config",
     ]
 
 
@@ -323,7 +325,7 @@ def test_un_trunk_n_a_pas_d_entite_d_appel():
     topics = [p.topic for p in events.discovery(
         {"grandstream-fxo": events.Poste("Pont Freebox", trunk=True)}
     )]
-    assert not any("event/" in t for t in topics)
+    assert "homeassistant/event/telephonie/grandstream-fxo_appel/config" not in topics
     assert any("binary_sensor/" in t for t in topics)
 
 
@@ -364,6 +366,9 @@ def test_les_sujets_annonces_sont_ceux_reellement_publies():
          "destchannel": "PJSIP/salon-00000002", "uniqueid": "a"},
         {"event": "DialBegin", "channel": "PJSIP/grandstream-fxo-00000001",
          "destchannel": "PJSIP/etage-00000003", "uniqueid": "b"},
+        {"event": "Cdr", "channel": "PJSIP/grandstream-fxo-00000001",
+         "destinationchannel": "PJSIP/salon-00000002",
+         "disposition": "ANSWERED", "uniqueid": "c"},
     ):
         publies.update(p.topic for p in translator.translate(event))
 
@@ -454,3 +459,129 @@ def test_une_connexion_fermee_pendant_l_identification_ne_boucle_pas(monkeypatch
 
     with pytest.raises(ConnectionError, match="fermée"):
         ami.connect()
+
+
+# --- Enregistrements d'appel (cdr_manager) ----------------------------------
+
+CDR_ENTRANT = {
+    "event": "Cdr",
+    "source": "0102030405",
+    "destination": "100",
+    "channel": "PJSIP/grandstream-fxo-00000001",
+    "destinationchannel": "PJSIP/salon-00000002",
+    "starttime": "2026-08-21 01:32:03",
+    "answertime": "2026-08-21 01:32:09",
+    "endtime": "2026-08-21 01:34:21",
+    "duration": "138",
+    "billableseconds": "132",
+    "disposition": "ANSWERED",
+    "uniqueid": "1787095923.1",
+}
+
+
+def test_un_cdr_donne_la_duree_et_l_issue(translator):
+    publications = translator.translate(CDR_ENTRANT)
+    assert publications[0].topic == "telephonie/cdr"
+
+    charge = json.loads(publications[0].payload)
+    assert charge["event_type"] == "repondu"
+    assert charge["sens"] == "entrant"
+    assert charge["source"] == "0102030405"
+    assert charge["poste"] == "Salon"
+    assert charge["duree"] == 138
+    assert charge["duree_conversation"] == 132
+    assert charge["fin"] == "2026-08-21 01:34:21"
+
+
+def test_un_appel_sans_reponse_est_quand_meme_annonce(translator):
+    """C'est même le cas le plus intéressant — et celui où `destinationchannel`
+    est vide, puisque personne n'a décroché."""
+    charge = json.loads(translator.translate(dict(
+        CDR_ENTRANT, destinationchannel="", answertime="", billableseconds="0",
+        disposition="NO ANSWER",
+    ))[0].payload)
+
+    assert charge["event_type"] == "sans_reponse"
+    assert charge["sens"] == "entrant"      # déduit du seul côté appelant
+    assert charge["duree_conversation"] == 0
+
+
+def test_le_sens_sortant_est_reconnu_sur_un_cdr(translator):
+    charge = json.loads(translator.translate({
+        "event": "Cdr", "source": "100", "destination": "0102030405",
+        "channel": "PJSIP/salon-00000003",
+        "destinationchannel": "PJSIP/grandstream-fxo-00000004",
+        "disposition": "ANSWERED", "duration": "42", "billableseconds": "30",
+        "uniqueid": "1787095999.3",
+    })[0].payload)
+
+    assert charge["sens"] == "sortant"
+    assert charge["poste"] == "Salon"
+    assert charge["destination"] == "0102030405"
+
+
+@pytest.mark.parametrize("disposition, attendu", [
+    ("ANSWERED", "repondu"),
+    ("NO ANSWER", "sans_reponse"),
+    ("BUSY", "occupe"),
+    ("FAILED", "echec"),
+    ("CONGESTION", "congestion"),
+    ("QUELQUE CHOSE", "inconnu"),
+])
+def test_toutes_les_issues_sont_traduites(translator, disposition, attendu):
+    charge = json.loads(translator.translate(dict(
+        CDR_ENTRANT, disposition=disposition, uniqueid=disposition,
+    ))[0].payload)
+    assert charge["event_type"] == attendu
+
+
+def test_une_duree_illisible_ne_perd_pas_l_evenement(translator):
+    """Mieux vaut une durée à zéro qu'un appel jamais annoncé."""
+    charge = json.loads(translator.translate(dict(
+        CDR_ENTRANT, duration="", billableseconds="n/a",
+    ))[0].payload)
+    assert charge["duree"] == 0
+    assert charge["duree_conversation"] == 0
+
+
+def test_les_cdr_des_canaux_techniques_sont_ecartes(translator):
+    """`cdr.conf` produit un enregistrement par tronçon : ceux des canaux Local
+    doublent celui du vrai canal."""
+    assert translator.translate({
+        "event": "Cdr", "channel": "Local/100@from-internal-00000001;1",
+        "destinationchannel": "Local/100@from-internal-00000001;2",
+        "disposition": "ANSWERED", "uniqueid": "x",
+    }) == []
+
+
+def test_un_meme_cdr_n_est_annonce_qu_une_fois(translator):
+    assert len(translator.translate(CDR_ENTRANT)) == 1
+    assert translator.translate(CDR_ENTRANT) == []
+
+
+def test_l_entite_des_appels_termines_est_unique_et_globale():
+    """Un appel sans réponse n'a pas de poste : le rattacher à l'un d'eux
+    ferait disparaître exactement les appels qu'on veut voir."""
+    configs = [p for p in events.discovery(POSTES) if p.topic.endswith("/cdr/config")]
+    assert len(configs) == 1
+
+    config = json.loads(configs[0].payload)
+    assert config["state_topic"] == "telephonie/cdr"
+    assert "sans_reponse" in config["event_types"]
+    assert "repondu" in config["event_types"]
+
+
+def test_les_issues_publiees_sont_toutes_declarees(translator):
+    """Un `event_type` absent de la découverte est rejeté par Home Assistant."""
+    config = json.loads(
+        [p for p in events.discovery(POSTES) if p.topic.endswith("/cdr/config")][0].payload
+    )
+    declares = set(config["event_types"])
+
+    for index, disposition in enumerate(
+        list(events.DISPOSITIONS) + ["VALEUR INATTENDUE"]
+    ):
+        charge = json.loads(translator.translate(dict(
+            CDR_ENTRANT, disposition=disposition, uniqueid=f"u{index}",
+        ))[0].payload)
+        assert charge["event_type"] in declares, disposition
