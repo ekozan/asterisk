@@ -222,6 +222,50 @@ Group ne contenant que ses postes.
 
 ---
 
+## Les numéros abrégés
+
+Composer `5` pour appeler Mamie. Deux écrans, sans une ligne de dialplan.
+
+1. *Applications → Misc Destinations* : un nom (`Mamie`) et le numéro complet
+   (`0102030405`). Ça crée une destination utilisable ailleurs dans FreePBX.
+2. *Applications → Misc Applications* : le code composé (`5`) vers cette destination.
+
+L'appel repart par vos routes sortantes habituelles, donc avec le failover et les filtres.
+
+> Si vous observez une seconde d'attente avant que ça compose, c'est qu'Asterisk hésite
+> entre `5` et un motif plus long qui commencerait par 5. Passez à un code à deux chiffres,
+> ou préfixez d'une étoile — `*5`, qui ne peut être le début d'aucun numéro.
+
+### Le téléphone à cadran
+
+Un cadran n'émet pas de DTMF : il envoie des impulsions. Si votre ATA fait la conversion,
+les numéros abrégés fonctionnent parfaitement, et c'est de loin la façon la plus simple
+d'appeler quelqu'un depuis ce poste.
+
+**Mais vérifiez ce que la conversion couvre exactement.** Sur beaucoup d'ATA, la détection
+d'impulsions n'est active que **pendant la numérotation**, avant l'établissement de
+l'appel. Une fois en communication, tourner le cadran ne produit alors plus rien
+d'exploitable.
+
+La différence compte dès qu'un menu vocal est en jeu :
+
+| Usage | Nécessite | Fonctionne avec une conversion « à la numérotation seule » |
+|---|---|---|
+| Composer `5`, ou `101` | numérotation | oui |
+| Naviguer dans un menu vocal (« tapez 1 ») | DTMF en cours d'appel | **non** |
+| Consulter sa messagerie (`*97` puis un code) | DTMF en cours d'appel | **non** |
+
+Le test prend une minute : appelez `*43` (test d'écho) depuis le cadran, puis, une fois en
+ligne, composez un chiffre. Si Asterisk ne le voit pas — `asterisk -rvvv` l'affichera —,
+c'est que la conversion s'arrête à l'établissement de l'appel.
+
+Ça n'affecte pas le menu vocal des appels **entrants**, destiné aux gens qui vous appellent
+depuis leur propre téléphone. Ça affecte en revanche tout menu que vous voudriez proposer
+*au* poste à cadran — et c'est là, et seulement là, que la commande vocale reprend
+l'avantage sur un numéro abrégé.
+
+---
+
 ## Messagerie vocale
 
 Activée par extension, à la création. Pour l'envoi par courriel : *Settings → Voicemail
