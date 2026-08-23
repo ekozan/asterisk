@@ -394,6 +394,92 @@ exten => mamie,1,NoOp(Transfert vocal vers Mamie)
 La liste reste fermée, pour la même raison que plus haut : la reconnaissance vocale ne peut
 désigner qu'une entrée déclarée.
 
+### La phrase reconnue, et ce qu'elle déclenche
+
+Assist ne devine pas « appelle Mamie » : il faut le lui déclarer. Deux fichiers, tous deux
+déclaratifs.
+
+**La phrase**, dans `config/custom_sentences/fr/appeler.yaml` :
+
+```yaml
+language: fr
+intents:
+  AppelerContact:
+    data:
+      - sentences:
+          - "appelle {contact}"
+          - "appeler {contact}"
+          - "téléphone à {contact}"
+lists:
+  contact:
+    values:
+      - in: "mamie"
+        out: "mamie"
+      - in: "le médecin"
+        out: "medecin"
+```
+
+> **`lists` est la troisième barrière, et la plus utile.** Assist ne reconnaît que les
+> valeurs déclarées : « appelle le zéro six… » ne correspond à aucune phrase et se solde
+> par « je n'ai pas compris », au lieu de composer un numéro mal transcrit. La liste est
+> ainsi fermée à trois endroits — la phrase, l'intention, et le dialplan.
+>
+> `in` est ce qui se dit, `out` ce qui est transmis. C'est ce qui permet de dire « le
+> médecin » et de router vers l'extension `medecin`.
+
+**L'action**, dans `configuration.yaml` :
+
+```yaml
+intent_script:
+  AppelerContact:
+    speech:
+      text: "Je vous mets en relation avec {{ contact }}."
+    action:
+      - action: hassio.addon_stdin
+        data:
+          addon: <le slug de l'add-on ha-sip>
+          input:
+            command: transfer
+            number: "{{ states('input_text.appel_en_cours') }}"
+            transfer_to: "sip:{{ contact }}@10.0.5.20"
+```
+
+### Savoir quel appel transférer
+
+C'est le point de plomberie du montage. `intent_script` reçoit le contact reconnu, mais
+**pas** la référence de l'appel SIP en cours : la conversation Assist et l'appel ha-sip sont
+deux contextes distincts.
+
+On fait donc le lien par un helper, renseigné à l'arrivée de l'appel :
+
+```yaml
+automation:
+  - alias: Mémoriser l'appel vocal en cours
+    triggers:
+      - trigger: webhook
+        webhook_id: ha_sip_incoming
+    actions:
+      - action: input_text.set_value
+        target: {entity_id: input_text.appel_en_cours}
+        data: {value: "{{ trigger.json.parsed_remote_uri }}"}
+      # Le poste appelant est aussi disponible ici, pour personnaliser l'accueil
+      # ou refuser la composition vocale depuis certains postes.
+```
+
+> Ce montage suppose **un seul appel vocal à la fois**. Chez soi c'est sans conséquence ;
+> notez-le quand même, parce que le symptôme d'un chevauchement serait un transfert
+> appliqué au mauvais appel — et rien ne le signalerait.
+
+### Si votre agent conversationnel est un modèle de langage
+
+Tout ce qui précède vaut pour l'agent intégré de Home Assistant. Si vous avez branché un
+LLM à la place, les phrases personnalisées ne servent plus : on expose alors un `script`
+avec une `description`, que le modèle appelle comme un outil.
+
+**Gardez la liste fermée dans ce cas aussi**, via un `selector` à valeurs fixes sur le
+champ contact du script. Un modèle de langage peut inventer une destination plausible ;
+le `selector` et le dialplan restent les deux garde-fous qui ne dépendent pas de lui.
+
 ### Ce qu'il reste à éprouver
 
 L'architecture ci-dessus s'appuie sur des éléments vérifiés dans la documentation de
