@@ -107,6 +107,22 @@ donc sur FreePBX comme un trunk, pas comme une extension.
   chez vous, pas l'inverse
 - **Context** : laissez `from-pstn`, celui des appels venant de l'extérieur
 
+> **`SIP Server Address` reste vide, et FreePBX vous le dira** : *« This is ignored when
+> Registration is set to Receive »*. C'est normal, et c'est même la confirmation que vous
+> êtes dans le bon mode — en `Receive`, FreePBX apprend l'adresse du HT813 au moment où
+> celui-ci s'enregistre, il n'a donc rien à connaître d'avance.
+>
+> **À ne pas confondre avec le champ *SIP Server* du HT813**, plus bas : deux champs de nom
+> voisin, sur deux appareils différents. Celui de l'appareil doit contenir l'adresse de la
+> VM FreePBX, et lui n'est pas facultatif. Le sens de la flèche est le même des deux côtés —
+> l'appareil va vers le serveur — mais chacun n'a besoin que de sa moitié de l'information.
+
+**Une alternative, si votre HT813 a une adresse fixe** : se passer d'enregistrement. Mettez
+*Registration* sur `None`, *Authentication* sur `Outbound`, et renseignez l'adresse de
+l'appareil dans *Match (Permit)*. FreePBX identifie alors le trunk par son IP. C'est plus
+robuste — aucun enregistrement à expirer, aucun AOR à devenir obsolète — mais ça suppose
+que l'adresse ne bouge jamais. Avec du DHCP, restez en `Receive`.
+
 ### Côté HT813
 
 Le HT813 a deux ports : un **FXS** (pour brancher un téléphone) et un **FXO** (pour se
