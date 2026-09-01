@@ -107,13 +107,75 @@ donc sur FreePBX comme un trunk, pas comme une extension.
   chez vous, pas l'inverse
 - **Context** : laissez `from-pstn`, celui des appels venant de l'extérieur
 
-Côté HT813, les réglages n'ont pas changé : voir
-[proof-of-concept/docs/08-materiel.md](../proof-of-concept/docs/08-materiel.md).
+### Côté HT813
 
-> **Le seuil de détection du raccroché** (*Current Disconnect Threshold*) reste le réglage
-> le plus important et le plus pénible du FXO. Mal calibré, la ligne Freebox reste occupée
-> après chaque appel — panne qu'on ne remarque qu'au moment où quelqu'un essaie d'appeler.
-> Il se règle appareil en main, par essais successifs, et FreePBX n'y change rien.
+Le HT813 a deux ports : un **FXS** (pour brancher un téléphone) et un **FXO** (pour se
+brancher *sur* une ligne). C'est le FXO qui nous intéresse — il se comporte comme un
+téléphone décroché sur la prise de la Freebox.
+
+Interface web de l'appareil, section *FXO Port* :
+
+| Réglage | Valeur |
+|---|---|
+| **SIP Server** | l'adresse de la VM FreePBX |
+| **SIP User ID** | le *Username* du trunk, ex. `freebox-fxo` |
+| **Authenticate ID** | le même |
+| **Authenticate Password** | le *Secret* du trunk |
+| **Preferred Vocoder** | `PCMA`, puis `PCMU` |
+
+> **Bonne nouvelle par rapport aux postes : un trunk garde un nom.** L'obligation d'utiliser
+> un numéro d'extension ne vaut que pour les extensions. `freebox-fxo` reste donc valable
+> tel quel, et le HT813 n'a pas à être renommé lors de la migration — contrairement aux ATA
+> des postes.
+
+**Appels entrants**, toujours dans *FXO Port* :
+
+| Réglage | Valeur |
+|---|---|
+| **Number of Rings Before Pickup** | `1` — décrocher dès la première sonnerie |
+| **Wait for Dial Tone** | `No` |
+| **Unconditional Call Forward to VOIP → User ID** | `s` |
+
+Le `s` arrive dans le contexte `from-pstn` sans numéro appelé. Une *Inbound Route* dont le
+champ **DID Number** est laissé **vide** capte tout ce qui n'a pas de destination
+explicite : c'est elle qui enverra l'appel vers votre menu vocal.
+
+Si vous préférez quelque chose de plus lisible — utile le jour où un second trunk arrive —
+mettez votre numéro de ligne fixe dans *User ID* plutôt que `s`, et créez une Inbound Route
+sur ce DID précis.
+
+### La détection du raccroché — le réglage qui compte
+
+Sans détection fiable, le HT813 garde la ligne décrochée après que le correspondant a
+raccroché : **la ligne Freebox reste occupée, et plus aucun appel ne passe** jusqu'au
+redémarrage de l'appareil. Le symptôme se découvre toujours au mauvais moment.
+
+| Réglage | Valeur |
+|---|---|
+| **Enable Current Disconnect** | `Yes` |
+| **Current Disconnect Threshold** | commencer à `200 ms`, ajuster entre 100 et 400 |
+| **Enable Call Progress Tones (Busy Tone) Disconnect** | `Yes`, en filet de sécurité |
+
+Le test à faire explicitement, et à refaire après chaque changement de seuil : appelez un
+mobile depuis un poste, raccrochez **côté mobile**, puis vérifiez que la ligne se libère.
+
+```bash
+sudo asterisk -rx "core show channels"   # aucun canal ne doit subsister
+```
+
+Si un canal persiste, montez le seuil par paliers de 50 ms. Ce réglage se fait appareil en
+main, par essais successifs, et FreePBX n'y change rien.
+
+### Deux réglages à ne pas oublier
+
+**Le port FXS du HT813 est libre.** Vous pouvez y brancher un téléphone de plus : il devient
+alors une extension ordinaire, à créer comme les autres, avec le numéro comme identifiant
+SIP. Ou le laisser inutilisé.
+
+**Coupez la mise à jour automatique du firmware** — *Maintenance → Upgrade and Provisioning*,
+*Automatic Upgrade* sur `No`, et videz le chemin de serveur de provisionnement s'il pointe
+encore vers celui du proof of concept. Deux sources de configuration sur un même appareil,
+c'est une reconfiguration silencieuse un matin, et une ligne fixe muette sans explication.
 
 ---
 
