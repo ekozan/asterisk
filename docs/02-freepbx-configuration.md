@@ -431,6 +431,62 @@ plus du prix du téléphone.
 
 ---
 
+## Un poste IP Fanvil V64
+
+C'est le cas inverse du Cisco : un poste SIP ouvert, sans micrologiciel à débloquer ni
+licence à acheter. Il s'enregistre sur FreePBX comme n'importe quel autre poste `pjsip`.
+
+Écran couleur 3,5″ (480×320), 12 comptes SIP, 7 touches de ligne et une touche de page
+donnant 21 touches programmables, deux ports gigabit, PoE, Wi-Fi et Bluetooth intégrés,
+prise casque EHS. Pour une maison, c'est très au-delà du nécessaire — mais rien de tout
+cela ne complique la mise en service.
+
+### La configuration à la main
+
+Créez l'extension côté FreePBX, en `pjsip`, comme les autres. Puis sur le téléphone,
+`http://<ip-du-poste>/`, onglet *Line → SIP* :
+
+| Champ | Valeur |
+|---|---|
+| Server Address | l'adresse du FreePBX |
+| Server Port | `5060` |
+| Username | le numéro d'extension, `105` par exemple |
+| Authentication User | le même numéro |
+| Authentication Password | le secret SIP du poste |
+| Display Name | le libellé du poste |
+| Activate | coché |
+
+**Changez le mot de passe d'administration du téléphone** avant de le laisser sur le
+réseau : Fanvil livre ses postes avec un couple par défaut connu de tout le monde, et
+l'interface web du téléphone donne accès au secret SIP de l'extension.
+
+### Le provisionnement, cette fois sans acheter de module
+
+Contrairement aux ATA Grandstream, le provisionnement Fanvil ne demande rien de
+particulier : le téléphone télécharge en HTTP un fichier nommé d'après sa propre adresse
+MAC, `0C383E5F1A63.cfg`, et l'URL accepte la variable `$mac` — `http://serveur/$mac.cfg`.
+On la lui donne soit dans son interface, soit par l'**option DHCP 66**.
+
+C'est exactement la forme que sert déjà le service de provisionnement du proof of concept,
+décrit dans
+[proof-of-concept/docs/10-provisionnement.md](../proof-of-concept/docs/10-provisionnement.md) :
+un fichier par adresse MAC, servi par HTTP. Il y a donc là une troisième voie, entre la
+saisie à la main et les 199 $ de l'Endpoint Manager.
+
+### Le port PC et la segmentation réseau
+
+Les deux ports gigabit servent à chaîner un ordinateur derrière le téléphone, avec un seul
+câble jusqu'au bureau. **C'est un pont entre deux réseaux.** Si vous avez séparé la
+téléphonie du reste — la recommandation de
+[proof-of-concept/docs/06-securite.md](../proof-of-concept/docs/06-securite.md) — brancher
+un ordinateur sur ce port le place dans le VLAN téléphonie, et annule la séparation, sauf à
+configurer l'étiquetage VLAN du poste (*Network → Advanced*, VLAN voix et VLAN données
+distincts).
+
+Le plus simple, pour une maison : ne rien brancher sur le port PC.
+
+---
+
 ## Provisionner les ATA
 
 C'est là que FreePBX coûte de l'argent, et autant le savoir avant.
