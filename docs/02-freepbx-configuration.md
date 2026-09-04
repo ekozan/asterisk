@@ -354,6 +354,83 @@ disque, mais si le courriel se perd, le message est perdu avec lui.
 
 ---
 
+## Un poste IP Cisco 8851
+
+La question se pose dès qu'on croise un CP-8851 d'occasion : c'est un très bon téléphone,
+vendu une fraction de son prix neuf. La réponse dépend entièrement du **micrologiciel**, et
+la référence imprimée sur le carton la donne en grande partie.
+
+| Référence | Micrologiciel d'origine | Avec FreePBX |
+|---|---|---|
+| `CP-8851-3PCC-K9` | Multiplatform (MPP / 3PCC) | Fonctionne, c'est un poste SIP ordinaire |
+| `CP-8851-K9` | Entreprise (pour CUCM) | **Ne s'enregistre pas** tant qu'il n'est pas converti |
+
+Le `-K9` ne désigne pas le micrologiciel — il désigne la cryptographie forte, et on le
+trouve sur les deux. C'est l'absence de `3PCC` qui indique un poste Entreprise.
+
+### Vérifier ce qui tourne réellement
+
+Un poste d'occasion a pu être converti par son propriétaire précédent, dans un sens comme
+dans l'autre. Seul le téléphone dit la vérité :
+
+    Applications (⚙) → Status → Product information
+
+Le champ *Software version* tranche : un nom contenant `3PCC` ou `MPP` (par exemple
+`sip88xx.12-0-7MPP…`) est un poste utilisable ; un nom en `…SIP…` seul est un poste
+Entreprise.
+
+Si le poste sort d'une autre installation, remettez-le d'usine avant tout essai : il garde
+sinon l'adresse de son ancien serveur d'appels. Débranchez l'alimentation, rebranchez en
+maintenant `#`, puis composez `123456789*0#`.
+
+### Si c'est un poste MPP
+
+Il se configure comme n'importe quel poste SIP, par son interface web :
+`http://<ip-du-poste>/admin/advanced`, onglet *Voice → Ext 1*.
+
+| Champ | Valeur |
+|---|---|
+| Line Enable | Yes |
+| Proxy | l'adresse du FreePBX |
+| Register | Yes |
+| User ID | le numéro d'extension, `105` par exemple |
+| Password | le secret SIP du poste |
+| Auth ID | le même numéro d'extension |
+| Display Name | le libellé du poste |
+
+Créez d'abord l'extension côté FreePBX, en `pjsip`, exactement comme les autres. Rien de
+particulier n'est à prévoir côté PBX : pour Asterisk, c'est un téléphone SIP de plus.
+
+L'Endpoint Manager sait provisionner ces modèles, mais pour un seul poste la saisie à la
+main est plus rapide que la mise en place du provisionnement.
+
+### Si c'est un poste Entreprise
+
+La conversion vers MPP est possible mais **payante et administrative** : elle passe par le
+*Cloud Upgrader* de Cisco et exige une licence de migration par téléphone, commandée chez
+un partenaire ou un distributeur Cisco. Il n'existe pas de micrologiciel MPP à télécharger
+librement pour contourner l'étape.
+
+Pour une maison, c'est le point qui décide : le coût de la licence et le temps passé
+dépassent le prix d'un poste SIP neuf d'entrée de gamme, alors que le PBX ne verra aucune
+différence entre les deux.
+
+Deux réserves supplémentaires, même en cas de conversion réussie :
+
+- La note de terrain Cisco **FN74296** signale que certaines versions matérielles des 8811,
+  8841, 8851, 8851NR et 8861 fabriquées entre 2013 et 2019 environ montrent des
+  performances dégradées sous micrologiciel MPP. Il n'existe pas de contournement.
+- Cisco a annoncé la **fin du support de migration** de ces séries. La fenêtre pour
+  convertir un poste ne s'élargira pas.
+
+### L'alimentation
+
+Le 8851 est un poste PoE de classe 3 et **l'alimentation secteur n'est pas fournie**. Sans
+commutateur PoE, il faut un injecteur ou le bloc secteur Cisco correspondant, à compter en
+plus du prix du téléphone.
+
+---
+
 ## Provisionner les ATA
 
 C'est là que FreePBX coûte de l'argent, et autant le savoir avant.
